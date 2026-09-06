@@ -4,7 +4,7 @@ import { readFile, unlink, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const appBaseUrl = 'http://127.0.0.1:5174'
-const envFile = '.env.ingestion-test'
+const envFile = '.env'
 const fixture = await readFile(new URL('../test/fixtures/openalex/works.json', import.meta.url), 'utf8')
 const viteCommand = resolve(
   'node_modules',
@@ -83,14 +83,16 @@ async function refresh() {
 
 let vite
 let mock
+let createdEnvFile = false
 let exitCode = 0
 const output = { value: '' }
 
 try {
   mock = await startMockOpenAlex()
   await writeFile(envFile, `OPENALEX_BASE_URL="${mock.baseUrl}"\n`, { flag: 'wx' })
+  createdEnvFile = true
 
-  vite = spawn(viteCommand, ['--host', '127.0.0.1', '--port', '5174', '--strictPort', '--mode', 'ingestion-test'], {
+  vite = spawn(viteCommand, ['--host', '127.0.0.1', '--port', '5174', '--strictPort'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   vite.stdout.on('data', (chunk) => {
@@ -142,10 +144,12 @@ try {
 } finally {
   await stopChild(vite)
   if (mock) await new Promise((resolveClose) => mock.server.close(resolveClose))
-  try {
-    await unlink(envFile)
-  } catch (error) {
-    if (error?.code !== 'ENOENT') console.error(`Could not remove ${envFile}:`, error)
+  if (createdEnvFile) {
+    try {
+      await unlink(envFile)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') console.error(`Could not remove ${envFile}:`, error)
+    }
   }
 }
 
