@@ -1,6 +1,6 @@
-# Cloudflare deployment and D1 setup
+# Cloudflare deployment, D1, and provider setup
 
-This document covers the Milestone 2 backend. Authentication remains a deployment-layer concern rather than an application account system.
+Authentication remains a deployment-layer concern rather than an application account system. Scholarly provider credentials also remain Worker-side and must never be exposed to React.
 
 ## 1. Local development
 
@@ -24,12 +24,10 @@ The Cloudflare Vite plugin runs the frontend and Worker together. Requests under
 Useful checks:
 
 ```bash
+npm run build
+npm run test:openalex
 npm run db:smoke:local
-```
-
-```text
-GET /api/health
-GET /api/bootstrap
+npm run api:smoke:local
 ```
 
 A healthy local bootstrap returns `feeds`, `papers`, and `decisions` from D1.
@@ -45,7 +43,7 @@ npx wrangler d1 create paper-collector
 
 Wrangler prints a real `database_id`. Replace the all-zero placeholder in `wrangler.jsonc` with that ID before deployment.
 
-Do not commit credentials. The D1 database ID is configuration metadata rather than a password, but environment secrets introduced later should use Wrangler/Cloudflare secret storage.
+The D1 database ID is configuration metadata rather than a password. Secrets introduced for provider access belong in Wrangler/Cloudflare secret storage.
 
 ## 3. Apply migrations
 
@@ -63,21 +61,65 @@ npm run db:migrate:remote
 
 D1 records applied migrations in its migration tracking table, so migrations should be additive and committed to `migrations/`.
 
-Do **not** run the development seed against production. Real papers and feeds will enter production through the ingestion/feed-management milestones.
+Do **not** run the development seed against production.
 
-## 4. Validate and deploy
+## 4. OpenAlex configuration
+
+Paper Collector can call OpenAlex without a key for casual development, but a free API key is recommended for real use.
+
+Store it as a Worker-side secret/configuration value named:
+
+```text
+OPENALEX_API_KEY
+```
+
+For example, using Wrangler secret storage:
 
 ```bash
-npm run typecheck
+npx wrangler secret put OPENALEX_API_KEY
+```
+
+The key is read only by the Worker when `POST /api/feeds/:feedId/refresh` constructs the OpenAlex provider. It must never be placed in Vite client environment variables or committed to the repository.
+
+Development CI deliberately uses recorded OpenAlex fixtures instead of a live key or live provider call.
+
+## 5. Validate and deploy
+
+```bash
 npm run build
+npm run test:openalex
 npm run deploy
 ```
 
-The Cloudflare Vite plugin creates deployment output containing both the React assets and Worker configuration. `wrangler deploy` deploys that output.
+The Cloudflare Vite plugin creates deployment output containing both React assets and Worker configuration. `wrangler deploy` deploys that output.
 
-A newly deployed production database can legitimately have an empty Inbox until real ingestion is connected. In deployed mode the UI still uses D1 as source of truth; it does not silently substitute bundled demo papers when `/api/bootstrap` succeeds.
+A newly deployed production database can legitimately have an empty Inbox until at least one Feed exists and ingestion has run.
 
-## 5. Cloudflare Access for personal deployment
+## 6. Manual ingestion check
+
+After a Feed with `provider_query` exists, the Worker can fetch a recent OpenAlex window through:
+
+```text
+POST /api/feeds/<feed-id>/refresh
+Content-Type: application/json
+
+{}
+```
+
+The empty JSON object uses the default fourteen-day window. An explicit window can be supplied:
+
+```json
+{
+  "fromDate": "2026-08-24",
+  "toDate": "2026-09-06"
+}
+```
+
+The response reports fetched, inserted, updated, and newly attached counts. Newly ingested papers are immediately visible in the normal `/api/bootstrap` response.
+
+Scheduled incremental refresh and persisted watermarks are tracked separately in Milestone 3c.
+
+## 7. Cloudflare Access for personal deployment
 
 Before using personal preference data, protect the entire application hostname with one Cloudflare Access self-hosted application.
 
@@ -88,12 +130,12 @@ Recommended personal setup:
 3. Configure the application at the hostname/root path so the SPA and `/api/*` are covered by the same policy.
 4. Enable **One-time PIN** as an authentication method if no external identity provider is desired.
 5. Add an **Allow** policy whose Include selector is the exact personal email address that should have access.
-6. Do not use broad rules such as `Everyone` or unrestricted `Login Methods: One-time PIN`; those would allow users other than the intended account.
+6. Do not use broad rules such as `Everyone` or unrestricted `Login Methods: One-time PIN`.
 7. Choose a practical session duration so normal phone use does not require frequent re-authentication.
 
-The key invariant is that the visible SPA and same-origin API are protected together. Do not protect only the frontend while leaving `/api/*` reachable without Access.
+The key invariant is that the visible SPA and same-origin API are protected together.
 
-## 6. Persistence behavior
+## 8. Persistence behavior
 
 When `/api/bootstrap` is reachable:
 
@@ -106,6 +148,6 @@ When `/api/bootstrap` is reachable:
 
 If the Worker/API cannot be reached at bootstrap, the development/demo fallback uses bundled synthetic papers plus localStorage decisions. This fallback is not the production source of truth.
 
-## 7. Configuration invariant
+## 9. Configuration invariant
 
 `wrangler.jsonc` deliberately contains a placeholder production D1 ID so repository builds do not depend on a specific account. Deployment is not complete until the database is created and that placeholder is replaced in the deployed configuration.
