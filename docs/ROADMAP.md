@@ -9,9 +9,9 @@ Goal: make the repository understandable and buildable.
 - [x] product specification
 - [x] architecture document
 - [x] logical data model
-- [ ] React/TypeScript/Vite app skeleton
-- [ ] CI for typecheck + build
-- [ ] mobile-first base layout
+- [x] React/TypeScript/Vite app skeleton
+- [x] CI for typecheck + build
+- [x] mobile-first base layout
 
 Exit criterion: a contributor can clone the repository, run the app, and understand the product boundaries.
 
@@ -19,15 +19,15 @@ Exit criterion: a contributor can clone the repository, run the app, and underst
 
 Goal: validate the core phone interaction before backend work.
 
-- [ ] demo papers
-- [ ] Inbox shows one decision-focused card at a time
-- [ ] original abstract
-- [ ] Open PDF / Open source
-- [ ] Save / Not interested
-- [ ] Saved view
-- [ ] Archive view
-- [ ] local persistence
-- [ ] decision counts / queue progress
+- [x] demo papers
+- [x] Inbox shows one decision-focused card at a time
+- [x] original abstract
+- [x] Open PDF / Open source
+- [x] Save / Not interested
+- [x] Saved view
+- [x] Archive view
+- [x] local persistence
+- [x] decision counts / queue progress
 
 Exit criterion: the entire triage loop works after a page reload without any backend.
 
