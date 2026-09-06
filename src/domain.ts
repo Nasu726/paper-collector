@@ -44,6 +44,7 @@ export type Feed = {
     | 'accepted_when_verifiable'
     | 'include_preprints'
   active: boolean
+  providerQuery?: string
 }
 
 export type DecisionState = 'saved' | 'rejected'

@@ -26,6 +26,9 @@ jobs:
       - name: Typecheck and build
         run: npm run build
 
+      - name: Test OpenAlex provider fixture
+        run: npm run test:openalex
+
       - name: Initialize local D1
         run: npm run db:setup:local
 
@@ -34,3 +37,6 @@ jobs:
 
       - name: Smoke-check Worker persistence API
         run: npm run api:smoke:local
+
+      - name: Smoke-check fixture-backed ingestion API
+        run: npm run api:smoke:ingestion

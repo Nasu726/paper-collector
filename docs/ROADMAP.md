@@ -35,7 +35,7 @@ Exit criterion: the entire triage loop works after a page reload without any bac
 
 Goal: replace prototype persistence without changing the UX contract.
 
-Tracked by parent issue #2.
+Tracked by completed parent issue #2.
 
 ### Milestone 2a — Worker/D1 foundation (#3)
 
@@ -58,24 +58,47 @@ Tracked by parent issue #2.
 - [x] deployed mode no longer depends on bundled demo data
 - [x] decision writes are D1-backed for cross-device use
 - [x] Cloudflare Access setup documented for the personal deployment model
-- [x] CI verifies build, local D1 setup, and Worker decision round-trip on the merge candidate
+- [x] CI verifies build, local D1 setup, and Worker decision round-trip
 
 Exit criterion: decisions and the feed/paper data required by the current UI persist through the Worker/D1 path; bundled demo data is only a fallback when the API is unavailable.
 
-## Milestone 3 — Real ingestion
+## Milestone 3 — Real ingestion (#7)
 
 Goal: turn the UI prototype into a paper collector.
 
-- [ ] choose first provider(s) based on metadata quality and coverage
-- [ ] provider adapter interface
-- [ ] normalized paper ingestion
-- [ ] ingestion provenance
-- [ ] scheduled collection
-- [ ] manual refresh
-- [ ] canonical identifier normalization
-- [ ] initial DOI/arXiv deduplication
+### Milestone 3a — OpenAlex ingestion vertical slice (#8)
 
-Exit criterion: a configured feed receives new real papers without manual data entry.
+- [x] choose OpenAlex as the first provider
+- [x] provider adapter interface
+- [x] reconstruct and normalize OpenAlex abstracts
+- [x] normalize DOI and OpenAlex identifiers
+- [x] normalized paper ingestion into D1
+- [x] ingestion provenance
+- [x] canonical DOI/provider identity upsert
+- [x] multi-feed membership without duplicate Paper rows
+- [x] explicit provider query kept separate from user-facing Feed intent
+- [x] manual Worker refresh endpoint
+- [x] recorded provider fixture test without live network dependency
+- [x] merge-candidate CI verified, including fixture-backed Worker ingestion and idempotent repeat refresh
+
+### Milestone 3b — Identity and Crossref enrichment (#9)
+
+- [ ] Crossref DOI enrichment adapter
+- [ ] accepted/publication date evidence when publisher metadata provides it
+- [ ] field provenance / source-conflict policy
+- [ ] multi-provider identity regression fixtures
+- [ ] stronger duplicate handling for updated/cross-listed records
+
+### Milestone 3c — Scheduled collection and refresh UX (#10)
+
+- [ ] per-feed successful ingestion watermark
+- [ ] incremental retry-safe refresh windows
+- [ ] Cloudflare scheduled Worker / Cron Trigger
+- [ ] manual refresh action in the Feed UI
+- [ ] last-success / last-error state
+- [ ] initial lookback policy for new feeds
+
+Exit criterion: a configured feed receives new real papers without manual database entry and continues to refresh safely over time.
 
 ## Milestone 4 — Feed management
 
@@ -83,11 +106,12 @@ Goal: make multiple research interests first-class.
 
 - [ ] create/edit/archive feeds
 - [ ] natural-language intent
+- [ ] explicit provider query configuration
 - [ ] exclusions
 - [ ] publication-source policy
 - [ ] multi-feed membership without duplicate Inbox papers
 
-Exit criterion: at least two independent research feeds can coexist cleanly.
+Exit criterion: at least two independent research feeds can coexist cleanly and their collection queries can be adjusted without mutating learned preference state.
 
 ## Milestone 5 — Feedback instrumentation
 

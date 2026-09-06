@@ -7,9 +7,13 @@ import type {
   PublicationStatus,
   RecommendationBucket,
 } from '../src/domain'
+import { persistProviderPapers } from './ingestion'
+import { OpenAlexProvider } from './providers/openalex'
 
 type Env = {
   DB: D1Database
+  OPENALEX_API_KEY?: string
+  OPENALEX_BASE_URL?: string
 }
 
 type DecisionRow = {
@@ -28,6 +32,7 @@ type FeedRow = {
   exclusions: string | null
   source_policy: Feed['sourcePolicy']
   active: number
+  provider_query: string | null
 }
 
 type PaperRow = {
@@ -54,6 +59,11 @@ type RecommendationRow = {
   reasons_json: string
   model_version: string
   scored_at: string
+}
+
+type RefreshBody = {
+  fromDate?: string
+  toDate?: string
 }
 
 const decisionStates = new Set<DecisionState>(['saved', 'rejected'])
@@ -104,6 +114,7 @@ function rowToFeed(row: FeedRow): Feed {
     exclusions: row.exclusions ?? undefined,
     sourcePolicy: row.source_policy,
     active: row.active === 1,
+    providerQuery: row.provider_query ?? undefined,
   }
 }
 
@@ -157,7 +168,7 @@ async function loadDecisions(db: D1Database): Promise<Record<string, Decision>> 
 async function loadFeeds(db: D1Database): Promise<Feed[]> {
   const result = await db
     .prepare(
-      `SELECT id, name, intent, exclusions, source_policy, active
+      `SELECT id, name, intent, exclusions, source_policy, active, provider_query
        FROM feeds
        ORDER BY created_at ASC, id ASC`,
     )
@@ -234,6 +245,76 @@ async function loadBootstrap(db: D1Database) {
   return { feeds, papers, decisions }
 }
 
+function validDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  return !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+}
+
+function daysBefore(date: string, days: number): string {
+  const timestamp = Date.parse(`${date}T00:00:00Z`) - days * 86_400_000
+  return new Date(timestamp).toISOString().slice(0, 10)
+}
+
+async function parseRefreshBody(request: Request): Promise<RefreshBody | null> {
+  if (!request.headers.get('content-type')?.includes('application/json')) return {}
+  try {
+    const value = (await request.json()) as unknown
+    if (!value || typeof value !== 'object') return null
+    const candidate = value as Record<string, unknown>
+    if (candidate.fromDate !== undefined && !validDate(candidate.fromDate)) return null
+    if (candidate.toDate !== undefined && !validDate(candidate.toDate)) return null
+    return {
+      fromDate: candidate.fromDate as string | undefined,
+      toDate: candidate.toDate as string | undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function refreshFeed(request: Request, env: Env, feedId: string): Promise<Response> {
+  const row = await env.DB
+    .prepare(
+      `SELECT id, name, intent, exclusions, source_policy, active, provider_query
+       FROM feeds WHERE id = ?`,
+    )
+    .bind(feedId)
+    .first<FeedRow>()
+  if (!row) return error('Feed does not exist.', 404)
+
+  const feed = rowToFeed(row)
+  if (!feed.active) return error('Feed is paused.', 409)
+  const query = feed.providerQuery?.trim()
+  if (!query) return error('Feed has no provider query configured.', 409)
+
+  const body = await parseRefreshBody(request)
+  if (!body) return error('Refresh body must contain ISO fromDate/toDate values.')
+
+  const toDate = body.toDate ?? new Date().toISOString().slice(0, 10)
+  const fromDate = body.fromDate ?? daysBefore(toDate, 13)
+  if (fromDate > toDate) return error('fromDate must not be after toDate.')
+
+  const provider = new OpenAlexProvider({
+    apiKey: env.OPENALEX_API_KEY,
+    baseUrl: env.OPENALEX_BASE_URL,
+  })
+  const papers = await provider.search({
+    query,
+    fromDate,
+    toDate,
+    sourcePolicy: feed.sourcePolicy,
+  })
+  const result = await persistProviderPapers(env.DB, feed, papers, query)
+
+  return json({
+    feedId,
+    provider: provider.name,
+    fromDate,
+    toDate,
+    ...result,
+  })
+}
+
 async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
 
@@ -244,6 +325,11 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
 
   if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
     return json(await loadBootstrap(env.DB))
+  }
+
+  const refreshMatch = url.pathname.match(/^\/api\/feeds\/([^/]+)\/refresh$/)
+  if (request.method === 'POST' && refreshMatch) {
+    return refreshFeed(request, env, decodeURIComponent(refreshMatch[1]))
   }
 
   if (request.method === 'DELETE' && url.pathname === '/api/decisions') {

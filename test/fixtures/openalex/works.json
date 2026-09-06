@@ -1,0 +1,65 @@
+{
+  "meta": { "count": 2, "page": 1, "per_page": 25 },
+  "results": [
+    {
+      "id": "https://openalex.org/W1234567890",
+      "doi": "https://doi.org/10.5555/Graph.Test.2026",
+      "title": "A Fixture Paper on Graph Algorithms",
+      "publication_date": "2026-09-01",
+      "type": "article",
+      "updated_date": "2026-09-04T12:00:00.000000",
+      "abstract_inverted_index": {
+        "We": [0],
+        "study": [1],
+        "graph": [2],
+        "algorithms": [3],
+        "carefully.": [4]
+      },
+      "authorships": [
+        { "author": { "display_name": "Ada Example" } },
+        { "author": { "display_name": "Taro Example" } }
+      ],
+      "primary_location": {
+        "landing_page_url": "https://publisher.example/graph-test",
+        "pdf_url": null,
+        "is_published": true,
+        "is_accepted": false,
+        "source": { "display_name": "Journal of Fixture Research" }
+      },
+      "best_oa_location": {
+        "landing_page_url": "https://repository.example/graph-test",
+        "pdf_url": "https://repository.example/graph-test.pdf",
+        "is_published": true,
+        "is_accepted": false,
+        "source": { "display_name": "Fixture Repository" }
+      },
+      "locations": []
+    },
+    {
+      "id": "https://openalex.org/W9988776655",
+      "doi": null,
+      "title": "A Fixture Preprint",
+      "publication_date": "2026-09-02",
+      "type": "preprint",
+      "updated_date": "2026-09-03T08:00:00.000000",
+      "abstract_inverted_index": {
+        "This": [0],
+        "is": [1],
+        "a": [2],
+        "preprint.": [3]
+      },
+      "authorships": [
+        { "author": { "display_name": "Pre Print" } }
+      ],
+      "primary_location": {
+        "landing_page_url": "https://preprint.example/W9988776655",
+        "pdf_url": "https://preprint.example/W9988776655.pdf",
+        "is_published": false,
+        "is_accepted": false,
+        "source": { "display_name": "Fixture Preprints" }
+      },
+      "best_oa_location": null,
+      "locations": []
+    }
+  ]
+}

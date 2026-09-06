@@ -1,6 +1,6 @@
 PRAGMA foreign_keys = ON;
 
-INSERT OR IGNORE INTO feeds (id, name, intent, exclusions, source_policy, active)
+INSERT OR IGNORE INTO feeds (id, name, intent, exclusions, source_policy, active, provider_query)
 VALUES
   (
     'graph-algorithms',
@@ -8,7 +8,8 @@ VALUES
     'Simple but nontrivial graph algorithms, structural graph theory, and meaningful complexity improvements.',
     'Avoid application-only machine learning papers.',
     'include_preprints',
-    1
+    1,
+    'graph algorithms structural graph theory complexity improvement'
   ),
   (
     'compilers',
@@ -16,7 +17,8 @@ VALUES
     'Compiler implementation, optimization, program analysis, unusual intermediate representations, and low-level code generation.',
     NULL,
     'published_only',
-    1
+    1,
+    'compiler optimization program analysis code generation'
   );
 
 INSERT OR IGNORE INTO papers (
