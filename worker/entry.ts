@@ -4,13 +4,17 @@ import {
   type CrossrefEnrichmentEnv,
 } from './crossrefEnrichment'
 import {
+  handleFeedbackApi,
+  type FeedbackEnv,
+} from './feedback'
+import {
   handleFeedLifecycleApi,
   visibleFeedIds,
   type FeedLifecycleEnv,
 } from './feedLifecycle'
 import type { RefreshEnv } from './feedRefresh'
 
-type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv
+type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv & FeedbackEnv
 type BaseFetchRequest = Parameters<typeof baseHandler.fetch>[0]
 
 type EvidenceRow = {
@@ -209,6 +213,9 @@ export default {
     try {
       const lifecycleResponse = await handleFeedLifecycleApi(request, env)
       if (lifecycleResponse) return lifecycleResponse
+
+      const feedbackResponse = await handleFeedbackApi(request, env)
+      if (feedbackResponse) return feedbackResponse
 
       const metadataResponse = await handleMetadataApi(request, env)
       if (metadataResponse) return metadataResponse
