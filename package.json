@@ -20,7 +20,8 @@
     "api:smoke:local": "node ./scripts/smoke-worker.mjs",
     "api:smoke:ingestion": "node ./scripts/smoke-ingestion.mjs",
     "api:smoke:feed-lifecycle": "node ./scripts/smoke-feed-lifecycle.mjs",
-    "api:smoke:multifeed": "node ./scripts/smoke-multifeed-lifecycle.mjs"
+    "api:smoke:multifeed": "node ./scripts/smoke-multifeed-lifecycle.mjs",
+    "api:smoke:feedback": "node ./scripts/smoke-feedback-events.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",
