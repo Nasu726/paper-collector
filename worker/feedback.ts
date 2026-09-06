@@ -180,7 +180,7 @@ async function listFeedbackEvents(env: FeedbackEnv, paperId: string, url: URL): 
       `SELECT id, paper_id, event_type, event_at, weight, metadata_json
        FROM feedback_events
        WHERE paper_id = ?
-       ORDER BY event_at DESC, id DESC
+       ORDER BY event_at DESC, rowid DESC
        LIMIT ?`,
     )
     .bind(paperId, limit)
