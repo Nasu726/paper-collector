@@ -43,3 +43,6 @@ jobs:
 
       - name: Smoke-check fixture-backed ingestion API
         run: npm run api:smoke:ingestion
+
+      - name: Smoke-check Feed lifecycle and checkpoint semantics
+        run: npm run api:smoke:feed-lifecycle

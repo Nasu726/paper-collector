@@ -3,9 +3,15 @@ import {
   enrichPendingCrossrefPapers,
   type CrossrefEnrichmentEnv,
 } from './crossrefEnrichment'
+import {
+  handleFeedLifecycleApi,
+  visibleFeedIds,
+  type FeedLifecycleEnv,
+} from './feedLifecycle'
 import type { RefreshEnv } from './feedRefresh'
 
-type Env = RefreshEnv & CrossrefEnrichmentEnv
+type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv
+type BaseFetchRequest = Parameters<typeof baseHandler.fetch>[0]
 
 type EvidenceRow = {
   field_name: string
@@ -19,6 +25,11 @@ type EvidenceRow = {
   selected_source_field: string | null
   policy_version: string | null
   selected_at: string | null
+}
+
+type BootstrapPayload = {
+  feeds?: Array<{ id?: unknown }>
+  [key: string]: unknown
 }
 
 function json(data: unknown, init?: ResponseInit): Response {
@@ -102,15 +113,42 @@ async function handleCrossrefApi(request: Request, env: Env): Promise<Response |
   return null
 }
 
+async function filteredBootstrap(request: BaseFetchRequest, env: Env): Promise<Response> {
+  const response = await baseHandler.fetch(request, env)
+  if (!response.ok) return response
+
+  const payload = (await response.json()) as BootstrapPayload
+  if (!Array.isArray(payload.feeds)) return json(payload, { status: response.status })
+
+  const visible = await visibleFeedIds(env.DB)
+  return json(
+    {
+      ...payload,
+      feeds: payload.feeds.filter((feed) => typeof feed.id === 'string' && visible.has(feed.id)),
+    },
+    { status: response.status },
+  )
+}
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url)
+
     try {
+      const lifecycleResponse = await handleFeedLifecycleApi(request, env)
+      if (lifecycleResponse) return lifecycleResponse
+
       const crossrefResponse = await handleCrossrefApi(request, env)
       if (crossrefResponse) return crossrefResponse
+
+      if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
+        return filteredBootstrap(request, env)
+      }
     } catch (cause) {
-      console.error('Paper Collector enrichment API error', cause)
+      console.error('Paper Collector extension API error', cause)
       return error('Internal server error.', 500)
     }
+
     return baseHandler.fetch(request, env)
   },
 
