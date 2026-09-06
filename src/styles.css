@@ -380,6 +380,67 @@ h1 {
   border-top: 1px solid #ece8df;
 }
 
+.ingestion-status {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: #f3f2ed;
+  color: #656d68;
+  font-size: 0.75rem;
+}
+
+.ingestion-status p {
+  margin: 0;
+  font-weight: 750;
+}
+
+.ingestion-status span,
+.ingestion-status strong {
+  display: block;
+}
+
+.ingestion-error,
+.ingestion-truncated {
+  background: #f5ece7;
+  color: #774d42;
+}
+
+.ingestion-success {
+  background: #edf3ee;
+  color: #355a49;
+}
+
+.feed-actions {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.refresh-button {
+  min-height: 44px;
+  border: 1px solid #315f4e;
+  border-radius: 12px;
+  background: #315f4e;
+  color: white;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.refresh-button:disabled {
+  border-color: #cbc9c2;
+  background: #e5e3dd;
+  color: #8c918e;
+  cursor: not-allowed;
+}
+
+.refresh-message {
+  color: #6f7772;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .reset-button {
   min-height: 44px;
   margin-top: 4px;
