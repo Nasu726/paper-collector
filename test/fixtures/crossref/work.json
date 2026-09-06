@@ -1,0 +1,20 @@
+{
+  "status": "ok",
+  "message-type": "work",
+  "message-version": "1.0.0",
+  "message": {
+    "DOI": "10.5555/Graph.Test.2026",
+    "title": ["A Crossref Deposit for the Fixture Graph Paper"],
+    "author": [
+      { "given": "Ada", "family": "Example" },
+      { "given": "Taro", "family": "Example" }
+    ],
+    "container-title": ["Journal of Publisher Deposits"],
+    "URL": "https://doi.org/10.5555/Graph.Test.2026",
+    "type": "journal-article",
+    "accepted": { "date-parts": [[2026, 8, 20]] },
+    "published-online": { "date-parts": [[2026, 9, 2]] },
+    "published-print": { "date-parts": [[2026, 10, 1]] },
+    "issued": { "date-parts": [[2026, 9, 2]] }
+  }
+}
