@@ -58,7 +58,7 @@ Tracked by parent issue #2.
 - [x] deployed mode no longer depends on bundled demo data
 - [x] decision writes are D1-backed for cross-device use
 - [x] Cloudflare Access setup documented for the personal deployment model
-- [ ] CI verifies build plus local D1 setup on the merge candidate
+- [x] CI verifies build, local D1 setup, and Worker decision round-trip on the merge candidate
 
 Exit criterion: decisions and the feed/paper data required by the current UI persist through the Worker/D1 path; bundled demo data is only a fallback when the API is unavailable.
 
