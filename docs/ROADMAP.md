@@ -46,7 +46,7 @@ Tracked by parent issue #2.
 - [x] D1-backed decision bootstrap/upsert/delete/reset endpoints
 - [x] localStorage mirror/fallback
 - [x] deployment configuration and setup documentation
-- [ ] CI verified after merge candidate is opened
+- [x] CI verified after merge candidate is opened
 
 ### Milestone 2b — Complete cloud persistence (#4)
 
