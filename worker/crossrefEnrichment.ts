@@ -21,6 +21,7 @@ type CandidateRow = {
 
 type CanonicalPaperRow = {
   id: string
+  published_at: string | null
   venue: string | null
   publication_status: PublicationStatus
 }
@@ -55,6 +56,14 @@ function intervalFromEnv(env: CrossrefEnrichmentEnv): number {
   if (raw === undefined) return 225
   const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, 10_000) : 225
+}
+
+function datePrecision(value: string | null | undefined): number {
+  if (!value) return 0
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return 3
+  if (/^\d{4}-\d{2}$/.test(value)) return 2
+  if (/^\d{4}$/.test(value)) return 1
+  return 0
 }
 
 async function sleep(milliseconds: number): Promise<void> {
@@ -156,7 +165,7 @@ async function applyCanonicalPolicy(
   record: CrossrefRecord,
 ): Promise<void> {
   const paper = await db
-    .prepare('SELECT id, venue, publication_status FROM papers WHERE id = ?')
+    .prepare('SELECT id, published_at, venue, publication_status FROM papers WHERE id = ?')
     .bind(paperId)
     .first<CanonicalPaperRow>()
   if (!paper) throw new Error(`Paper disappeared during Crossref enrichment: ${paperId}`)
@@ -180,7 +189,11 @@ async function applyCanonicalPolicy(
     await chooseCrossrefSource(db, paperId, record.doi, 'accepted_at', 'accepted')
   }
 
-  if (record.publishedAt && record.publicationDateSource) {
+  if (
+    record.publishedAt &&
+    record.publicationDateSource &&
+    datePrecision(record.publishedAt) >= datePrecision(paper.published_at)
+  ) {
     await db
       .prepare('UPDATE papers SET published_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .bind(record.publishedAt, paperId)
