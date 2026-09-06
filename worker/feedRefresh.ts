@@ -25,7 +25,7 @@ type WatermarkRow = {
 export type FeedRefreshInput = {
   fromDate?: string
   toDate?: string
-  now?: Date
+  referenceTime?: Date
 }
 
 export type FeedRefreshResult = {
@@ -55,7 +55,8 @@ export class FeedRefreshError extends Error {
 
 export function validIsoDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  return !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+  const parsed = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }
 
 export function daysBefore(date: string, days: number): string {
@@ -199,13 +200,15 @@ export async function refreshFeedById(
   }
 
   const explicitRange = input.fromDate !== undefined || input.toDate !== undefined
-  const now = input.now ?? new Date()
-  const toDate = input.toDate ?? now.toISOString().slice(0, 10)
+  const referenceTime = input.referenceTime ?? new Date()
+  const toDate = input.toDate ?? referenceTime.toISOString().slice(0, 10)
   const previousWatermark = await loadWatermark(env.DB, feedId)
   const fromDate = input.fromDate ?? (previousWatermark ? daysBefore(previousWatermark, 1) : daysBefore(toDate, 13))
   if (fromDate > toDate) throw new FeedRefreshError('fromDate must not be after toDate.', 400)
 
-  const attemptedAt = now.toISOString()
+  // Attempt ordering must reflect when this invocation actually started. The Cron
+  // scheduledTime is only a deterministic reference for the collection window.
+  const attemptedAt = new Date().toISOString()
   await recordAttempt(env.DB, feedId, attemptedAt)
 
   const provider = new OpenAlexProvider({
@@ -290,11 +293,11 @@ export async function refreshAllActiveFeeds(
 
   const results: FeedRefreshResult[] = []
   const failures: string[] = []
-  const now = new Date(scheduledTime)
+  const referenceTime = new Date(scheduledTime)
 
   for (const row of feedRows.results) {
     try {
-      const result = await refreshFeedById(env, row.id, { now })
+      const result = await refreshFeedById(env, row.id, { referenceTime })
       results.push(result)
       if (result.status === 'truncated') failures.push(`${row.id}: truncated`)
     } catch (cause) {
