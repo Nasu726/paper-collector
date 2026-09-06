@@ -35,14 +35,30 @@ Exit criterion: the entire triage loop works after a page reload without any bac
 
 Goal: replace prototype persistence without changing the UX contract.
 
-- [ ] Cloudflare Worker API
-- [ ] D1 schema and migrations
-- [ ] decision repository implementation
-- [ ] feed repository implementation
-- [ ] deployment configuration
-- [ ] Cloudflare Access deployment notes
+Tracked by parent issue #2.
 
-Exit criterion: decisions and feeds persist across devices.
+### Milestone 2a — Worker/D1 foundation (#3)
+
+- [x] Cloudflare Vite plugin integration
+- [x] Cloudflare Worker API boundary
+- [x] initial D1 schema/migration
+- [x] decision repository abstraction
+- [x] D1-backed decision bootstrap/upsert/delete/reset endpoints
+- [x] localStorage mirror/fallback
+- [x] deployment configuration and setup documentation
+- [x] CI verified after merge candidate is opened
+
+### Milestone 2b — Complete cloud persistence (#4)
+
+- [ ] deterministic D1 seed for development
+- [ ] feeds loaded from D1
+- [ ] papers loaded from D1
+- [ ] feed membership loaded from D1
+- [ ] deployed mode no longer depends on bundled demo data
+- [ ] cross-device persistence verified
+- [ ] Cloudflare Access setup finalized
+
+Exit criterion: decisions and feeds/papers required by the current UI persist across devices.
 
 ## Milestone 3 — Real ingestion
 
