@@ -1,4 +1,12 @@
-import type { Decision, DecisionState, RecommendationBucket } from '../src/domain'
+import type {
+  Decision,
+  DecisionState,
+  Feed,
+  Paper,
+  PaperIdentifier,
+  PublicationStatus,
+  RecommendationBucket,
+} from '../src/domain'
 
 type Env = {
   DB: D1Database
@@ -11,6 +19,41 @@ type DecisionRow = {
   feed_ids_json: string
   recommendation_bucket: RecommendationBucket | null
   model_version: string | null
+}
+
+type FeedRow = {
+  id: string
+  name: string
+  intent: string
+  exclusions: string | null
+  source_policy: Feed['sourcePolicy']
+  active: number
+}
+
+type PaperRow = {
+  id: string
+  title: string
+  abstract: string
+  authors_json: string
+  published_at: string | null
+  venue: string | null
+  publication_status: PublicationStatus
+  source_url: string
+  pdf_url: string | null
+  identifiers_json: string
+}
+
+type PaperFeedRow = {
+  paper_id: string
+  feed_id: string
+}
+
+type RecommendationRow = {
+  paper_id: string
+  bucket: RecommendationBucket
+  reasons_json: string
+  model_version: string
+  scored_at: string
 }
 
 const decisionStates = new Set<DecisionState>(['saved', 'rejected'])
@@ -36,14 +79,31 @@ function error(message: string, status = 400): Response {
   return json({ error: message }, { status })
 }
 
+function parseJsonArray<T>(raw: string): T[] {
+  const value = JSON.parse(raw) as unknown
+  if (!Array.isArray(value)) throw new Error('Expected JSON array in D1 row')
+  return value as T[]
+}
+
 function rowToDecision(row: DecisionRow): Decision {
   return {
     paperId: row.paper_id,
     state: row.state,
     decidedAt: row.decided_at,
-    feedIds: JSON.parse(row.feed_ids_json) as string[],
+    feedIds: parseJsonArray<string>(row.feed_ids_json),
     recommendationBucket: row.recommendation_bucket ?? undefined,
     modelVersion: row.model_version ?? undefined,
+  }
+}
+
+function rowToFeed(row: FeedRow): Feed {
+  return {
+    id: row.id,
+    name: row.name,
+    intent: row.intent,
+    exclusions: row.exclusions ?? undefined,
+    sourcePolicy: row.source_policy,
+    active: row.active === 1,
   }
 }
 
@@ -94,6 +154,86 @@ async function loadDecisions(db: D1Database): Promise<Record<string, Decision>> 
   return decisions
 }
 
+async function loadFeeds(db: D1Database): Promise<Feed[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, name, intent, exclusions, source_policy, active
+       FROM feeds
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all<FeedRow>()
+
+  return result.results.map(rowToFeed)
+}
+
+async function loadPapers(db: D1Database): Promise<Paper[]> {
+  const [paperResult, membershipResult, recommendationResult] = await Promise.all([
+    db
+      .prepare(
+        `SELECT id, title, abstract, authors_json, published_at, venue,
+                publication_status, source_url, pdf_url, identifiers_json
+         FROM papers
+         ORDER BY COALESCE(published_at, created_at) DESC, id ASC`,
+      )
+      .all<PaperRow>(),
+    db.prepare('SELECT paper_id, feed_id FROM paper_feeds ORDER BY paper_id, feed_id').all<PaperFeedRow>(),
+    db
+      .prepare(
+        `SELECT paper_id, bucket, reasons_json, model_version, scored_at
+         FROM recommendation_snapshots
+         WHERE feed_id IS NULL
+         ORDER BY scored_at DESC, id DESC`,
+      )
+      .all<RecommendationRow>(),
+  ])
+
+  const feedIdsByPaper = new Map<string, string[]>()
+  for (const row of membershipResult.results) {
+    const feedIds = feedIdsByPaper.get(row.paper_id) ?? []
+    feedIds.push(row.feed_id)
+    feedIdsByPaper.set(row.paper_id, feedIds)
+  }
+
+  const recommendationByPaper = new Map<string, RecommendationRow>()
+  for (const row of recommendationResult.results) {
+    if (!recommendationByPaper.has(row.paper_id)) recommendationByPaper.set(row.paper_id, row)
+  }
+
+  return paperResult.results.map((row): Paper => {
+    const recommendation = recommendationByPaper.get(row.id)
+    return {
+      id: row.id,
+      title: row.title,
+      abstract: row.abstract,
+      authors: parseJsonArray<string>(row.authors_json),
+      publishedAt: row.published_at ?? undefined,
+      venue: row.venue ?? undefined,
+      publicationStatus: row.publication_status,
+      sourceUrl: row.source_url,
+      pdfUrl: row.pdf_url ?? undefined,
+      identifiers: parseJsonArray<PaperIdentifier>(row.identifiers_json),
+      feedIds: feedIdsByPaper.get(row.id) ?? [],
+      recommendation: recommendation
+        ? {
+            bucket: recommendation.bucket,
+            reasons: parseJsonArray<string>(recommendation.reasons_json),
+            modelVersion: recommendation.model_version,
+          }
+        : undefined,
+    }
+  })
+}
+
+async function loadBootstrap(db: D1Database) {
+  const [feeds, papers, decisions] = await Promise.all([
+    loadFeeds(db),
+    loadPapers(db),
+    loadDecisions(db),
+  ])
+
+  return { feeds, papers, decisions }
+}
+
 async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
 
@@ -103,8 +243,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
-    const decisions = await loadDecisions(env.DB)
-    return json({ decisions })
+    return json(await loadBootstrap(env.DB))
   }
 
   if (request.method === 'DELETE' && url.pathname === '/api/decisions') {
@@ -126,6 +265,9 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
 
       const decision = parseDecision(body, paperId)
       if (!decision) return error('Invalid decision payload.')
+
+      const paper = await env.DB.prepare('SELECT id FROM papers WHERE id = ?').bind(paperId).first<{ id: string }>()
+      if (!paper) return error('Paper does not exist.', 404)
 
       await env.DB
         .prepare(

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { decisionRepository, type PersistenceMode } from './decisionRepository'
-import { demoFeeds, demoPapers } from './demoData'
+import { appRepository, type PersistenceMode } from './appRepository'
 import type {
   Decision,
   DecisionState,
+  Feed,
   Paper,
   PublicationStatus,
   RecommendationBucket,
@@ -26,9 +26,9 @@ const statusLabels: Record<PublicationStatus, string> = {
   unknown: 'Unknown',
 }
 
-function feedNames(paper: Paper): string[] {
+function feedNames(paper: Paper, feeds: Feed[]): string[] {
   return paper.feedIds
-    .map((feedId) => demoFeeds.find((feed) => feed.id === feedId)?.name)
+    .map((feedId) => feeds.find((feed) => feed.id === feedId)?.name)
     .filter((name): name is string => Boolean(name))
 }
 
@@ -72,9 +72,11 @@ function PaperMeta({ paper }: { paper: Paper }) {
 
 function FullPaperCard({
   paper,
+  feeds,
   onDecision,
 }: {
   paper: Paper
+  feeds: Feed[]
   onDecision: (paper: Paper, state: DecisionState) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -87,7 +89,7 @@ function FullPaperCard({
     <article className="paper-card">
       <header>
         <div className="feed-row">
-          {feedNames(paper).map((name) => (
+          {feedNames(paper, feeds).map((name) => (
             <span className="feed-chip" key={name}>
               {name}
             </span>
@@ -127,17 +129,19 @@ function FullPaperCard({
 
 function CompactPaperCard({
   paper,
+  feeds,
   decision,
   onReturnToInbox,
 }: {
   paper: Paper
+  feeds: Feed[]
   decision: Decision
   onReturnToInbox: (paperId: string) => void
 }) {
   return (
     <article className="compact-paper-card">
       <div className="feed-row">
-        {feedNames(paper).map((name) => (
+        {feedNames(paper, feeds).map((name) => (
           <span className="feed-chip" key={name}>
             {name}
           </span>
@@ -168,18 +172,22 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('inbox')
+  const [feeds, setFeeds] = useState<Feed[]>([])
+  const [papers, setPapers] = useState<Paper[]>([])
   const [decisions, setDecisions] = useState<Record<string, Decision>>({})
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>('local')
-  const [persistenceReady, setPersistenceReady] = useState(false)
+  const [dataReady, setDataReady] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
-    void decisionRepository.load().then(({ decisions: loadedDecisions, mode }) => {
+    void appRepository.load().then((bootstrap) => {
       if (cancelled) return
-      setDecisions(loadedDecisions)
-      setPersistenceMode(mode)
-      setPersistenceReady(true)
+      setFeeds(bootstrap.feeds)
+      setPapers(bootstrap.papers)
+      setDecisions(bootstrap.decisions)
+      setPersistenceMode(bootstrap.mode)
+      setDataReady(true)
     })
 
     return () => {
@@ -188,16 +196,16 @@ export default function App() {
   }, [])
 
   const inbox = useMemo(
-    () => demoPapers.filter((paper) => decisions[paper.id] === undefined),
-    [decisions],
+    () => papers.filter((paper) => decisions[paper.id] === undefined),
+    [decisions, papers],
   )
   const saved = useMemo(
-    () => demoPapers.filter((paper) => decisions[paper.id]?.state === 'saved'),
-    [decisions],
+    () => papers.filter((paper) => decisions[paper.id]?.state === 'saved'),
+    [decisions, papers],
   )
   const rejected = useMemo(
-    () => demoPapers.filter((paper) => decisions[paper.id]?.state === 'rejected'),
-    [decisions],
+    () => papers.filter((paper) => decisions[paper.id]?.state === 'rejected'),
+    [decisions, papers],
   )
 
   function decide(paper: Paper, state: DecisionState) {
@@ -211,7 +219,7 @@ export default function App() {
     }
 
     setDecisions((previous) => ({ ...previous, [paper.id]: decision }))
-    void decisionRepository.upsert(decision).then(setPersistenceMode)
+    void appRepository.upsertDecision(decision).then(setPersistenceMode)
   }
 
   function returnToInbox(paperId: string) {
@@ -220,16 +228,16 @@ export default function App() {
       delete next[paperId]
       return next
     })
-    void decisionRepository.remove(paperId).then(setPersistenceMode)
+    void appRepository.removeDecision(paperId).then(setPersistenceMode)
   }
 
-  function resetDemo() {
+  function resetDecisions() {
     setDecisions({})
     setTab('inbox')
-    void decisionRepository.clear().then(setPersistenceMode)
+    void appRepository.clearDecisions().then(setPersistenceMode)
   }
 
-  const processedCount = demoPapers.length - inbox.length
+  const processedCount = papers.length - inbox.length
 
   return (
     <div className="app-shell">
@@ -241,7 +249,7 @@ export default function App() {
             {persistenceMode === 'cloud' ? 'Cloud sync' : 'Local fallback'}
           </p>
         </div>
-        {tab === 'inbox' && persistenceReady ? (
+        {tab === 'inbox' && dataReady ? (
           <div className="queue-count" aria-label={`${inbox.length} papers remaining`}>
             <strong>{inbox.length}</strong>
             <span>left</span>
@@ -250,40 +258,39 @@ export default function App() {
       </header>
 
       <main>
-        {!persistenceReady ? (
-          <EmptyState title="Loading Inbox" body="Loading your paper triage state." />
-        ) : null}
+        {!dataReady ? <EmptyState title="Loading Inbox" body="Loading papers and triage state." /> : null}
 
-        {persistenceReady && tab === 'inbox' ? (
+        {dataReady && tab === 'inbox' ? (
           <>
             <div className="progress-row">
               <span>{processedCount} processed</span>
-              <span>{demoPapers.length} total</span>
+              <span>{papers.length} total</span>
             </div>
             <div className="progress-track" aria-hidden="true">
               <div
                 className="progress-value"
-                style={{ width: `${demoPapers.length === 0 ? 0 : (processedCount / demoPapers.length) * 100}%` }}
+                style={{ width: `${papers.length === 0 ? 0 : (processedCount / papers.length) * 100}%` }}
               />
             </div>
             {inbox[0] ? (
-              <FullPaperCard paper={inbox[0]} onDecision={decide} />
+              <FullPaperCard paper={inbox[0]} feeds={feeds} onDecision={decide} />
             ) : (
               <EmptyState
                 title="Inbox cleared"
-                body="There are no undecided demo papers. New papers will appear here after ingestion is connected."
+                body="There are no undecided papers. New papers will appear here when ingestion adds them."
               />
             )}
           </>
         ) : null}
 
-        {persistenceReady && tab === 'saved' ? (
+        {dataReady && tab === 'saved' ? (
           <section className="paper-list">
             {saved.length ? (
               saved.map((paper) => (
                 <CompactPaperCard
                   key={paper.id}
                   paper={paper}
+                  feeds={feeds}
                   decision={decisions[paper.id]}
                   onReturnToInbox={returnToInbox}
                 />
@@ -294,13 +301,14 @@ export default function App() {
           </section>
         ) : null}
 
-        {persistenceReady && tab === 'archive' ? (
+        {dataReady && tab === 'archive' ? (
           <section className="paper-list">
             {rejected.length ? (
               rejected.map((paper) => (
                 <CompactPaperCard
                   key={paper.id}
                   paper={paper}
+                  feeds={feeds}
                   decision={decisions[paper.id]}
                   onReturnToInbox={returnToInbox}
                 />
@@ -311,9 +319,9 @@ export default function App() {
           </section>
         ) : null}
 
-        {persistenceReady && tab === 'feeds' ? (
+        {dataReady && tab === 'feeds' ? (
           <section className="feed-list">
-            {demoFeeds.map((feed) => (
+            {feeds.map((feed) => (
               <article className="feed-card" key={feed.id}>
                 <div className="feed-card-title">
                   <h2>{feed.name}</h2>
@@ -328,8 +336,8 @@ export default function App() {
                 <p className="source-policy">Source policy: {feed.sourcePolicy.replaceAll('_', ' ')}</p>
               </article>
             ))}
-            <button className="reset-button" type="button" onClick={resetDemo}>
-              Reset demo decisions
+            <button className="reset-button" type="button" onClick={resetDecisions}>
+              Reset triage decisions
             </button>
           </section>
         ) : null}

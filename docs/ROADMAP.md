@@ -50,15 +50,17 @@ Tracked by parent issue #2.
 
 ### Milestone 2b — Complete cloud persistence (#4)
 
-- [ ] deterministic D1 seed for development
-- [ ] feeds loaded from D1
-- [ ] papers loaded from D1
-- [ ] feed membership loaded from D1
-- [ ] deployed mode no longer depends on bundled demo data
-- [ ] cross-device persistence verified
-- [ ] Cloudflare Access setup finalized
+- [x] deterministic local D1 seed for development
+- [x] feeds loaded from D1
+- [x] papers loaded from D1
+- [x] feed membership loaded from D1
+- [x] recommendation snapshots loaded from D1
+- [x] deployed mode no longer depends on bundled demo data
+- [x] decision writes are D1-backed for cross-device use
+- [x] Cloudflare Access setup documented for the personal deployment model
+- [x] CI verifies build, local D1 setup, and Worker decision round-trip on the merge candidate
 
-Exit criterion: decisions and feeds/papers required by the current UI persist across devices.
+Exit criterion: decisions and the feed/paper data required by the current UI persist through the Worker/D1 path; bundled demo data is only a fallback when the API is unavailable.
 
 ## Milestone 3 — Real ingestion
 
