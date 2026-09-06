@@ -2,17 +2,19 @@
 
 A **mobile-first personal Paper Inbox** for discovering and triaging research papers.
 
-The core idea is intentionally simple: collect papers into an Inbox, inspect the original abstract (or jump straight to the PDF), then choose **Save** or **Not interested**. Recommendation is treated as decision support, never as an automatic filter.
+The core idea is intentionally simple: collect papers into an Inbox, inspect the abstract (or jump straight to the PDF), then choose **Save** or **Not interested**. Recommendation is treated as decision support, never as an automatic filter.
 
 ## Status
 
-Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, scheduled OpenAlex ingestion, DOI-based Crossref enrichment, provider field provenance, mobile Feed management, and privacy-minimized implicit feedback instrumentation are implemented. The next major product milestone is a simple recommendation baseline built on explicit decisions plus the recorded interaction evidence.
+Active development. The mobile triage flow, Cloudflare persistence, scheduled OpenAlex ingestion, DOI-based Crossref enrichment, provider field provenance, Feed management, privacy-minimized implicit feedback, and the deterministic `lexical-v1` recommendation baseline are implemented.
+
+Paper Collector and [`Nasu726/book-reader`](https://github.com/Nasu726/book-reader) now intentionally target one shared physical D1 as a **Paper Library**. Collector owns canonical scholarly-paper metadata and its operational tables; Reader keeps reading-specific state and can link a Reader document to a canonical Paper without duplicating scholarly metadata.
 
 ## Product principles
 
 - mobile-first
 - Inbox-first
-- original title/abstract by default
+- title/abstract in their source language by default
 - PDF/source link available before deciding
 - explicit feedback stays lightweight
 - implicit feedback is supporting evidence, not ground truth
@@ -20,6 +22,7 @@ Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, s
 - explicit Feed intent is separate from learned preference
 - provider collection queries are separate from human-facing Feed intent
 - provider disagreements are retained rather than silently discarded
+- PDF bytes are not stored by Paper Collector
 - AI is optional, not a core dependency
 
 ## Stack
@@ -47,15 +50,19 @@ npm run dev
 
 The frontend loads feeds, papers, recommendation snapshots, ingestion state, and decisions from the same-origin Worker API. If the API is unavailable at bootstrap, development falls back to bundled synthetic papers plus localStorage decisions.
 
+`--local` D1 state is repository-local. Development and CI therefore remain isolated even though production shares the Reader's physical D1 database.
+
 Useful validation:
 
 ```bash
 npm run build
 npm run test:openalex
 npm run test:crossref
+npm run test:recommendation
 npm run db:smoke:local
 npm run api:smoke:local
 npm run api:smoke:feedback
+npm run api:smoke:recommendation
 npm run api:smoke:ingestion
 npm run api:smoke:feed-lifecycle
 npm run api:smoke:multifeed
@@ -93,7 +100,7 @@ The core explicit judgment remains Save / Not Interested. The app additionally r
 - opening the PDF
 - opening the source page
 
-Each event records whether it happened from Inbox, Saved, or Archive. Raw events do not contain a permanent recommendation weight; a future versioned ranking model will decide how to interpret them.
+Each event records whether it happened from Inbox, Saved, or Archive. Raw events do not contain a permanent recommendation weight; versioned recommendation logic decides how to interpret them.
 
 Feedback collection is best-effort. A logging failure never blocks PDF/source navigation or downgrades otherwise healthy decision persistence.
 
@@ -101,15 +108,26 @@ The feedback API rejects arbitrary client metadata, raw paper text/URLs, and cli
 
 See [`docs/FEEDBACK.md`](docs/FEEDBACK.md).
 
+## Shared Paper Library
+
+Production Paper Collector binds to the existing `book-reader` D1 database. Collector migrations use the independent `paper_collector_migrations` tracking table, so Reader and Collector can keep separate migration files safely.
+
+Paper Collector stores canonical paper metadata, identifiers, URLs, preference state, ingestion state, and current recommendation state. It does **not** copy PDF bytes. Reader may keep explicit uploaded/private document bytes in its existing R2 storage and can later link Reader documents to canonical `papers.id`.
+
+See [`docs/SHARED_PAPER_LIBRARY.md`](docs/SHARED_PAPER_LIBRARY.md).
+
 ## Deployment
 
-Production deployment requires creating a real D1 database and replacing the placeholder `database_id` in `wrangler.jsonc`. Development seed data is intentionally separate from migrations and should not be loaded into production. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+The production D1 binding in `wrangler.jsonc` points to the existing `book-reader` database. Do not create a second Paper Collector production D1. Apply Collector migrations through its own migration tracking table, and never load development seed data into production.
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Documentation
 
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior and invariants
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current runtime/data boundaries
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — logical domain model
+- [`docs/SHARED_PAPER_LIBRARY.md`](docs/SHARED_PAPER_LIBRARY.md) — shared D1 ownership and Reader integration boundary
 - [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md) — incremental refresh and Cron semantics
 - [`docs/CROSSREF_ENRICHMENT.md`](docs/CROSSREF_ENRICHMENT.md) — field evidence and Crossref conflict policy
 - [`docs/FEED_MANAGEMENT.md`](docs/FEED_MANAGEMENT.md) — Feed lifecycle and checkpoint semantics

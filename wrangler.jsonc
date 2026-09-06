@@ -10,8 +10,12 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "paper-collector",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Paper Collector and book-reader intentionally share one physical D1.
+      // Each application owns non-overlapping tables and keeps an independent
+      // Wrangler migration history so similarly numbered migration files cannot collide.
+      "database_name": "book-reader",
+      "database_id": "c0ed3894-0dbf-4de3-b151-2bf35396d577",
+      "migrations_table": "paper_collector_migrations",
       "migrations_dir": "migrations"
     }
   ],
