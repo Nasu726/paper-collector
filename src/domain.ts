@@ -11,6 +11,11 @@ export type Recommendation = {
   bucket: RecommendationBucket
   reasons: string[]
   modelVersion: string
+  /**
+   * Opaque 1-based ordering rank produced by the Worker from the persisted
+   * recommendation generation. It is not a probability and is not displayed.
+   */
+  rank?: number
 }
 
 export type PaperIdentifier = {
