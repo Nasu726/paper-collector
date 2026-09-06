@@ -27,6 +27,16 @@ type EvidenceRow = {
   selected_at: string | null
 }
 
+type ProvenanceRow = {
+  feed_id: string
+  provider: string
+  provider_record_id: string
+  query_text: string
+  provider_updated_at: string | null
+  first_seen_at: string
+  last_seen_at: string
+}
+
 type BootstrapPayload = {
   feeds?: Array<{ id?: unknown }>
   [key: string]: unknown
@@ -46,9 +56,13 @@ function error(message: string, status = 400): Response {
   return json({ error: message }, { status })
 }
 
-async function fieldEvidence(env: Env, paperId: string): Promise<Response> {
+async function requirePaper(env: Env, paperId: string): Promise<boolean> {
   const paper = await env.DB.prepare('SELECT id FROM papers WHERE id = ?').bind(paperId).first<{ id: string }>()
-  if (!paper) return error('Paper does not exist.', 404)
+  return Boolean(paper)
+}
+
+async function fieldEvidence(env: Env, paperId: string): Promise<Response> {
+  if (!(await requirePaper(env, paperId))) return error('Paper does not exist.', 404)
 
   const result = await env.DB
     .prepare(
@@ -93,7 +107,35 @@ async function fieldEvidence(env: Env, paperId: string): Promise<Response> {
   })
 }
 
-async function handleCrossrefApi(request: Request, env: Env): Promise<Response | null> {
+async function ingestionProvenance(env: Env, paperId: string): Promise<Response> {
+  if (!(await requirePaper(env, paperId))) return error('Paper does not exist.', 404)
+
+  const result = await env.DB
+    .prepare(
+      `SELECT feed_id, provider, provider_record_id, query_text,
+              provider_updated_at, first_seen_at, last_seen_at
+       FROM ingestion_provenance
+       WHERE paper_id = ?
+       ORDER BY feed_id, provider, provider_record_id`,
+    )
+    .bind(paperId)
+    .all<ProvenanceRow>()
+
+  return json({
+    paperId,
+    provenance: result.results.map((row) => ({
+      feedId: row.feed_id,
+      provider: row.provider,
+      providerRecordId: row.provider_record_id,
+      queryText: row.query_text,
+      providerUpdatedAt: row.provider_updated_at ?? undefined,
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+    })),
+  })
+}
+
+async function handleMetadataApi(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url)
 
   if (request.method === 'POST' && url.pathname === '/api/enrichment/crossref') {
@@ -108,6 +150,11 @@ async function handleCrossrefApi(request: Request, env: Env): Promise<Response |
   const evidenceMatch = url.pathname.match(/^\/api\/papers\/([^/]+)\/evidence$/)
   if (request.method === 'GET' && evidenceMatch) {
     return fieldEvidence(env, decodeURIComponent(evidenceMatch[1]))
+  }
+
+  const provenanceMatch = url.pathname.match(/^\/api\/papers\/([^/]+)\/provenance$/)
+  if (request.method === 'GET' && provenanceMatch) {
+    return ingestionProvenance(env, decodeURIComponent(provenanceMatch[1]))
   }
 
   return null
@@ -138,8 +185,8 @@ export default {
       const lifecycleResponse = await handleFeedLifecycleApi(request, env)
       if (lifecycleResponse) return lifecycleResponse
 
-      const crossrefResponse = await handleCrossrefApi(request, env)
-      if (crossrefResponse) return crossrefResponse
+      const metadataResponse = await handleMetadataApi(request, env)
+      if (metadataResponse) return metadataResponse
 
       if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
         return filteredBootstrap(request, env)
