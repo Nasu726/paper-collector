@@ -46,17 +46,20 @@ export type FeedIngestionState = {
   lastPages: number
 }
 
+export type FeedSourcePolicy =
+  | 'published_only'
+  | 'accepted_when_verifiable'
+  | 'include_preprints'
+
 export type Feed = {
   id: string
   name: string
   intent: string
   exclusions?: string
-  sourcePolicy:
-    | 'published_only'
-    | 'accepted_when_verifiable'
-    | 'include_preprints'
+  sourcePolicy: FeedSourcePolicy
   active: boolean
   providerQuery?: string
+  archivedAt?: string
   ingestion?: FeedIngestionState
 }
 

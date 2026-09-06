@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { appRepository, type PersistenceMode } from './appRepository'
+import { appRepository, type AppBootstrap, type PersistenceMode } from './appRepository'
+import { FeedManager } from './FeedManager'
 import type {
   Decision,
   DecisionState,
@@ -170,30 +171,6 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   )
 }
 
-function FeedIngestionStatus({ feed }: { feed: Feed }) {
-  const state = feed.ingestion
-  if (!state) return <p className="ingestion-status">Not refreshed yet.</p>
-
-  return (
-    <div className={`ingestion-status ingestion-${state.status}`}>
-      <p>
-        {state.status === 'success'
-          ? 'Last refresh succeeded.'
-          : state.status === 'truncated'
-            ? 'Last refresh was incomplete.'
-            : state.status === 'error'
-              ? 'Last refresh failed.'
-              : 'Not refreshed yet.'}
-      </p>
-      {state.lastSuccessAt ? <span>Success: {new Date(state.lastSuccessAt).toLocaleString()}</span> : null}
-      {state.watermarkDate ? <span>Watermark: {state.watermarkDate}</span> : null}
-      {state.lastAttemptAt ? <span>Attempt: {new Date(state.lastAttemptAt).toLocaleString()}</span> : null}
-      {state.lastPages > 0 ? <span>{state.lastFetched} provider records across {state.lastPages} page(s)</span> : null}
-      {state.lastError ? <strong>{state.lastError}</strong> : null}
-    </div>
-  )
-}
-
 export default function App() {
   const [tab, setTab] = useState<Tab>('inbox')
   const [feeds, setFeeds] = useState<Feed[]>([])
@@ -201,18 +178,20 @@ export default function App() {
   const [decisions, setDecisions] = useState<Record<string, Decision>>({})
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>('local')
   const [dataReady, setDataReady] = useState(false)
-  const [refreshingFeedId, setRefreshingFeedId] = useState<string | null>(null)
-  const [refreshMessages, setRefreshMessages] = useState<Record<string, string>>({})
+
+  function applyBootstrap(bootstrap: AppBootstrap) {
+    setFeeds(bootstrap.feeds)
+    setPapers(bootstrap.papers)
+    setDecisions(bootstrap.decisions)
+    setPersistenceMode(bootstrap.mode)
+  }
 
   useEffect(() => {
     let cancelled = false
 
     void appRepository.load().then((bootstrap) => {
       if (cancelled) return
-      setFeeds(bootstrap.feeds)
-      setPapers(bootstrap.papers)
-      setDecisions(bootstrap.decisions)
-      setPersistenceMode(bootstrap.mode)
+      applyBootstrap(bootstrap)
       setDataReady(true)
     })
 
@@ -261,32 +240,6 @@ export default function App() {
     setDecisions({})
     setTab('inbox')
     void appRepository.clearDecisions().then(setPersistenceMode)
-  }
-
-  async function refreshFeed(feedId: string) {
-    setRefreshingFeedId(feedId)
-    setRefreshMessages((previous) => ({ ...previous, [feedId]: 'Refreshing…' }))
-    try {
-      const { refresh, bootstrap } = await appRepository.refreshFeed(feedId)
-      setFeeds(bootstrap.feeds)
-      setPapers(bootstrap.papers)
-      setDecisions(bootstrap.decisions)
-      setPersistenceMode(bootstrap.mode)
-      setRefreshMessages((previous) => ({
-        ...previous,
-        [feedId]:
-          refresh.status === 'truncated'
-            ? `Partial refresh: safety cap reached after ${refresh.rawFetched} provider records.`
-            : `Refresh complete: ${refresh.inserted} new, ${refresh.updated} updated.`,
-      }))
-    } catch (cause) {
-      setRefreshMessages((previous) => ({
-        ...previous,
-        [feedId]: cause instanceof Error ? cause.message : 'Feed refresh failed.',
-      }))
-    } finally {
-      setRefreshingFeedId(null)
-    }
   }
 
   const processedCount = papers.length - inbox.length
@@ -372,43 +325,12 @@ export default function App() {
         ) : null}
 
         {dataReady && tab === 'feeds' ? (
-          <section className="feed-list">
-            {feeds.map((feed) => (
-              <article className="feed-card" key={feed.id}>
-                <div className="feed-card-title">
-                  <h2>{feed.name}</h2>
-                  <span className={feed.active ? 'status-active' : ''}>{feed.active ? 'Active' : 'Paused'}</span>
-                </div>
-                <p>{feed.intent}</p>
-                {feed.exclusions ? (
-                  <p className="feed-exclusions">
-                    <strong>Exclude:</strong> {feed.exclusions}
-                  </p>
-                ) : null}
-                <p className="source-policy">Source policy: {feed.sourcePolicy.replaceAll('_', ' ')}</p>
-                <FeedIngestionStatus feed={feed} />
-                <div className="feed-actions">
-                  <button
-                    className="refresh-button"
-                    type="button"
-                    disabled={
-                      persistenceMode !== 'cloud' ||
-                      !feed.active ||
-                      !feed.providerQuery ||
-                      refreshingFeedId !== null
-                    }
-                    onClick={() => void refreshFeed(feed.id)}
-                  >
-                    {refreshingFeedId === feed.id ? 'Refreshing…' : 'Refresh now'}
-                  </button>
-                  {refreshMessages[feed.id] ? <span className="refresh-message">{refreshMessages[feed.id]}</span> : null}
-                </div>
-              </article>
-            ))}
-            <button className="reset-button" type="button" onClick={resetDecisions}>
-              Reset triage decisions
-            </button>
-          </section>
+          <FeedManager
+            feeds={feeds}
+            persistenceMode={persistenceMode}
+            onBootstrap={applyBootstrap}
+            onResetDecisions={resetDecisions}
+          />
         ) : null}
       </main>
 

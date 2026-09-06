@@ -1,5 +1,5 @@
 import { demoFeeds, demoPapers } from './demoData'
-import type { Decision, Feed, Paper } from './domain'
+import type { Decision, Feed, FeedSourcePolicy, Paper } from './domain'
 import { clearDecisions, loadDecisions, saveDecisions, type DecisionMap } from './storage'
 
 export type PersistenceMode = 'cloud' | 'local'
@@ -26,10 +26,26 @@ export type FeedRefreshResponse = {
   attached: number
 }
 
+export type FeedConfigInput = {
+  name: string
+  intent: string
+  exclusions?: string
+  sourcePolicy: FeedSourcePolicy
+  providerQuery: string
+}
+
+export type FeedConfigPatch = Partial<FeedConfigInput>
+export type FeedLifecycleAction = 'pause' | 'resume' | 'archive' | 'restore'
+
 type BootstrapResponse = {
   feeds: Feed[]
   papers: Paper[]
   decisions: DecisionMap
+}
+
+type FeedMutationResponse = {
+  feed: Feed
+  collectionReset?: boolean
 }
 
 function isBootstrapResponse(value: unknown): value is BootstrapResponse {
@@ -73,6 +89,46 @@ class ApiAppRepository {
     })
     if (!response.ok) throw await responseError(response, 'Feed refresh failed')
     return (await response.json()) as FeedRefreshResponse
+  }
+
+  async createFeed(input: FeedConfigInput): Promise<FeedMutationResponse> {
+    const response = await fetch('/api/feeds', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) throw await responseError(response, 'Feed creation failed')
+    return (await response.json()) as FeedMutationResponse
+  }
+
+  async updateFeed(feedId: string, patch: FeedConfigPatch): Promise<FeedMutationResponse> {
+    const response = await fetch(`/api/feeds/${encodeURIComponent(feedId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (!response.ok) throw await responseError(response, 'Feed update failed')
+    return (await response.json()) as FeedMutationResponse
+  }
+
+  async transitionFeed(feedId: string, action: FeedLifecycleAction): Promise<FeedMutationResponse> {
+    const response = await fetch(`/api/feeds/${encodeURIComponent(feedId)}/${action}`, {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw await responseError(response, `Feed ${action} failed`)
+    return (await response.json()) as FeedMutationResponse
+  }
+
+  async loadArchivedFeeds(): Promise<Feed[]> {
+    const response = await fetch('/api/feeds/archived', {
+      headers: { accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (!response.ok) throw await responseError(response, 'Archived Feed load failed')
+    const payload = (await response.json()) as { feeds?: unknown }
+    if (!Array.isArray(payload.feeds)) throw new Error('Archived Feed response is invalid')
+    return payload.feeds as Feed[]
   }
 
   async upsertDecision(decision: Decision): Promise<void> {
@@ -126,12 +182,20 @@ class ResilientAppRepository {
   private readonly local = new LocalAppRepository()
   private mode: PersistenceMode = 'cloud'
 
+  private async loadCloud(): Promise<AppBootstrap> {
+    const bootstrap = await this.api.load()
+    saveDecisions(bootstrap.decisions)
+    this.mode = 'cloud'
+    return { ...bootstrap, mode: 'cloud' }
+  }
+
+  private requireCloud(): void {
+    if (this.mode !== 'cloud') throw new Error('Feed management requires the cloud Worker API.')
+  }
+
   async load(): Promise<AppBootstrap> {
     try {
-      const bootstrap = await this.api.load()
-      saveDecisions(bootstrap.decisions)
-      this.mode = 'cloud'
-      return { ...bootstrap, mode: this.mode }
+      return await this.loadCloud()
     } catch {
       this.mode = 'local'
       return { ...this.local.load(), mode: this.mode }
@@ -139,15 +203,40 @@ class ResilientAppRepository {
   }
 
   async refreshFeed(feedId: string): Promise<{ refresh: FeedRefreshResponse; bootstrap: AppBootstrap }> {
-    if (this.mode !== 'cloud') throw new Error('Feed refresh requires the cloud Worker API.')
+    this.requireCloud()
 
     const refresh = await this.api.refreshFeed(feedId)
-    const bootstrap = await this.api.load()
-    saveDecisions(bootstrap.decisions)
-    return {
-      refresh,
-      bootstrap: { ...bootstrap, mode: 'cloud' },
-    }
+    const bootstrap = await this.loadCloud()
+    return { refresh, bootstrap }
+  }
+
+  async createFeed(input: FeedConfigInput): Promise<{ mutation: FeedMutationResponse; bootstrap: AppBootstrap }> {
+    this.requireCloud()
+    const mutation = await this.api.createFeed(input)
+    return { mutation, bootstrap: await this.loadCloud() }
+  }
+
+  async updateFeed(
+    feedId: string,
+    patch: FeedConfigPatch,
+  ): Promise<{ mutation: FeedMutationResponse; bootstrap: AppBootstrap }> {
+    this.requireCloud()
+    const mutation = await this.api.updateFeed(feedId, patch)
+    return { mutation, bootstrap: await this.loadCloud() }
+  }
+
+  async transitionFeed(
+    feedId: string,
+    action: FeedLifecycleAction,
+  ): Promise<{ mutation: FeedMutationResponse; bootstrap: AppBootstrap }> {
+    this.requireCloud()
+    const mutation = await this.api.transitionFeed(feedId, action)
+    return { mutation, bootstrap: await this.loadCloud() }
+  }
+
+  async loadArchivedFeeds(): Promise<Feed[]> {
+    this.requireCloud()
+    return this.api.loadArchivedFeeds()
   }
 
   async upsertDecision(decision: Decision): Promise<PersistenceMode> {
