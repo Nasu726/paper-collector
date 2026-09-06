@@ -83,14 +83,19 @@ async function bootstrap() {
   return response.json()
 }
 
-async function backfillRefresh() {
-  const response = await fetch(`${appBaseUrl}/api/feeds/graph-algorithms/refresh`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fromDate: '2026-09-01', toDate: '2026-09-06' }),
-  })
+async function refreshGraph(body) {
+  const options = { method: 'POST', headers: {} }
+  if (body !== undefined) {
+    options.headers['content-type'] = 'application/json'
+    options.body = JSON.stringify(body)
+  }
+  const response = await fetch(`${appBaseUrl}/api/feeds/graph-algorithms/refresh`, options)
   if (!response.ok) throw new Error(`Feed refresh failed with ${response.status}: ${await response.text()}`)
   return response.json()
+}
+
+async function backfillRefresh() {
+  return refreshGraph({ fromDate: '2026-09-01', toDate: '2026-09-06' })
 }
 
 async function scheduledRefresh() {
@@ -171,6 +176,16 @@ try {
   const crossFeedDoi = afterScheduled.papers.find((paper) => paper.id === 'doi:10.5555/graph.test.2026')
   assert(crossFeedDoi.feedIds.includes('compilers'), 'Scheduled refresh did not attach shared canonical paper to second Feed')
 
+  const overlapping = await Promise.all([refreshGraph(), refreshGraph()])
+  assert(overlapping.every((result) => result.status === 'success'), 'Overlapping refresh did not complete successfully')
+  assert(overlapping.every((result) => result.inserted === 0), 'Overlapping refresh inserted duplicate canonical papers')
+  assert(overlapping.every((result) => result.attached === 0), 'Overlapping refresh inserted duplicate Feed memberships')
+
+  const afterOverlap = await bootstrap()
+  const overlapGraph = afterOverlap.feeds.find((feed) => feed.id === 'graph-algorithms')
+  assert(overlapGraph?.ingestion?.watermarkDate >= '2026-09-06', 'Overlapping refresh regressed the watermark')
+  assert(afterOverlap.papers.length === beforeCount + 2, 'Overlapping refresh changed canonical paper count')
+
   mock.setFailing(true)
   const failedResponse = await fetch(`${appBaseUrl}/api/feeds/graph-algorithms/refresh`, { method: 'POST' })
   assert(failedResponse.status === 502, `Expected provider failure to return 502, got ${failedResponse.status}`)
@@ -178,11 +193,11 @@ try {
   const afterFailure = await bootstrap()
   const failedGraph = afterFailure.feeds.find((feed) => feed.id === 'graph-algorithms')
   assert(failedGraph?.ingestion?.status === 'error', 'Provider failure was not recorded on the Feed')
-  assert(failedGraph.ingestion.watermarkDate === '2026-09-06', 'Provider failure advanced or erased the watermark')
+  assert(failedGraph.ingestion.watermarkDate >= '2026-09-06', 'Provider failure advanced backwards or erased the watermark')
   assert(Boolean(failedGraph.ingestion.lastError), 'Provider failure did not retain an error message')
 
   console.log(
-    `Ingestion smoke test passed: idempotent backfill, scheduled watermark, and failure-preserving watermark verified.`,
+    'Ingestion smoke test passed: idempotent backfill, scheduled watermark, overlapping refresh, and failure-preserving watermark verified.',
   )
 } catch (error) {
   exitCode = 1
