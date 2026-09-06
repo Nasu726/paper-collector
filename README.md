@@ -6,7 +6,7 @@ The core idea is intentionally simple: collect papers into an Inbox, inspect the
 
 ## Status
 
-Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, OpenAlex ingestion, and scheduled incremental refresh path are implemented. Crossref enrichment and Feed editing remain upcoming work.
+Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, scheduled OpenAlex ingestion, DOI-based Crossref enrichment, and provider field provenance are implemented. Feed editing remains the next major product milestone.
 
 ## Product principles
 
@@ -19,6 +19,7 @@ Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, O
 - recommendation ranks but does not hide papers
 - explicit feed intent is separate from learned preference
 - provider collection queries are separate from human-facing Feed intent
+- provider disagreements are retained rather than silently discarded
 - AI is optional, not a core dependency
 
 ## Stack
@@ -30,7 +31,8 @@ Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, O
 - Cloudflare Workers
 - Cloudflare D1
 - Cloudflare Cron Triggers
-- OpenAlex for initial real-paper ingestion
+- OpenAlex for paper discovery and collection
+- Crossref for DOI/publisher metadata enrichment
 - Cloudflare Access for personal deployment
 
 ## Development
@@ -50,6 +52,7 @@ Useful validation:
 ```bash
 npm run build
 npm run test:openalex
+npm run test:crossref
 npm run db:smoke:local
 npm run api:smoke:local
 npm run api:smoke:ingestion
@@ -71,11 +74,11 @@ Normal manual refreshes and the scheduled Worker share the same incremental wate
 
 Supplying explicit JSON `fromDate` and/or `toDate` values (`YYYY-MM-DD`) makes the request a backfill/diagnostic range. Papers are persisted, but the incremental watermark is not advanced.
 
-`wrangler.jsonc` schedules active Feeds every six hours. See [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md) for the state-machine and failure semantics.
+`wrangler.jsonc` schedules active Feeds every six hours. After OpenAlex ingestion, the scheduled Worker runs a bounded Crossref enrichment batch for DOI-bearing papers. Crossref evidence is stored separately from the canonical field-selection decision so disagreements remain inspectable.
 
-An OpenAlex API key is optional for casual development use. For real deployment, configure the free key as Worker-side configuration/secret rather than exposing it to the frontend.
+See [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md) and [`docs/CROSSREF_ENRICHMENT.md`](docs/CROSSREF_ENRICHMENT.md).
 
-CI uses recorded fixtures and a local mock OpenAlex server; tests do not require live OpenAlex availability.
+CI uses recorded fixtures and local mock scholarly APIs; tests do not require live OpenAlex or Crossref availability.
 
 ## Deployment
 
@@ -87,6 +90,7 @@ Production deployment requires creating a real D1 database and replacing the pla
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current architecture and ingestion boundaries
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — logical domain model
 - [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md) — incremental refresh and Cron semantics
+- [`docs/CROSSREF_ENRICHMENT.md`](docs/CROSSREF_ENRICHMENT.md) — field evidence and Crossref conflict policy
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestone plan
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Cloudflare/D1 setup and deployment
 - [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — development rules
