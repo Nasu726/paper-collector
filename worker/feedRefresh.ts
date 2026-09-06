@@ -102,7 +102,8 @@ async function recordAttempt(db: D1Database, feedId: string, attemptedAt: string
        ) VALUES (?, 'openalex', 'never', ?, CURRENT_TIMESTAMP)
        ON CONFLICT(feed_id) DO UPDATE SET
          last_attempt_at = excluded.last_attempt_at,
-         updated_at = CURRENT_TIMESTAMP`,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE excluded.last_attempt_at >= COALESCE(feed_ingestion_state.last_attempt_at, '')`,
     )
     .bind(feedId, attemptedAt)
     .run()
@@ -111,6 +112,7 @@ async function recordAttempt(db: D1Database, feedId: string, attemptedAt: string
 async function recordSuccess(
   db: D1Database,
   feedId: string,
+  attemptedAt: string,
   completedAt: string,
   toDate: string,
   advanceWatermark: boolean,
@@ -127,15 +129,21 @@ async function recordSuccess(
        ) VALUES (?, 'openalex', 'success', ?, ?, ?, NULL, ?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(feed_id) DO UPDATE SET
          status = 'success',
-         watermark_date = COALESCE(excluded.watermark_date, feed_ingestion_state.watermark_date),
+         watermark_date = CASE
+           WHEN excluded.watermark_date IS NULL THEN feed_ingestion_state.watermark_date
+           WHEN feed_ingestion_state.watermark_date IS NULL THEN excluded.watermark_date
+           WHEN excluded.watermark_date > feed_ingestion_state.watermark_date THEN excluded.watermark_date
+           ELSE feed_ingestion_state.watermark_date
+         END,
          last_attempt_at = excluded.last_attempt_at,
          last_success_at = excluded.last_success_at,
          last_error = NULL,
          last_fetched = excluded.last_fetched,
          last_pages = excluded.last_pages,
-         updated_at = CURRENT_TIMESTAMP`,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE excluded.last_attempt_at >= COALESCE(feed_ingestion_state.last_attempt_at, '')`,
     )
-    .bind(feedId, watermark, completedAt, completedAt, rawFetched, pages)
+    .bind(feedId, watermark, attemptedAt, completedAt, rawFetched, pages)
     .run()
 }
 
@@ -160,7 +168,8 @@ async function recordIncomplete(
          last_error = excluded.last_error,
          last_fetched = excluded.last_fetched,
          last_pages = excluded.last_pages,
-         updated_at = CURRENT_TIMESTAMP`,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE excluded.last_attempt_at >= COALESCE(feed_ingestion_state.last_attempt_at, '')`,
     )
     .bind(feedId, status, attemptedAt, message, rawFetched, pages)
     .run()
@@ -238,6 +247,7 @@ export async function refreshFeedById(
     await recordSuccess(
       env.DB,
       feedId,
+      attemptedAt,
       completedAt,
       toDate,
       advanceWatermark,
