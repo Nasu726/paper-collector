@@ -14,6 +14,7 @@ const compilerId = 'compilers'
 const graphQuery = 'graph invariant lifecycle query'
 const compilerQuery = 'compiler invariant lifecycle query'
 const sharedPaperId = 'doi:10.5555/graph.test.2026'
+const graphOnlyPreprintId = 'openalex:w9988776655'
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -164,6 +165,12 @@ try {
   const sharedPaper = canonicalMatches[0]
   assert(sharedPaper.feedIds.includes(graphId), 'Shared Paper is missing Graph membership')
   assert(sharedPaper.feedIds.includes(compilerId), 'Shared Paper is missing Compiler membership')
+  const graphOnlyPreprint = state.papers.find((paper) => paper.id === graphOnlyPreprintId)
+  assert(graphOnlyPreprint, 'Graph-only preprint is missing')
+  assert(
+    graphOnlyPreprint.feedIds.length === 1 && graphOnlyPreprint.feedIds[0] === graphId,
+    'Source-policy-specific preprint membership is incorrect',
+  )
 
   const decision = {
     paperId: sharedPaperId,
@@ -195,8 +202,12 @@ try {
   assert(!state.feeds.some((feed) => feed.id === graphId), 'Archived Graph Feed remains in normal bootstrap')
   const afterArchivePaper = state.papers.find((paper) => paper.id === sharedPaperId)
   assert(afterArchivePaper, 'Archiving a Feed deleted the shared Paper')
-  assert(afterArchivePaper.feedIds.includes(graphId), 'Archive deleted historical Graph membership')
-  assert(afterArchivePaper.feedIds.includes(compilerId), 'Archive damaged Compiler membership')
+  assert(!afterArchivePaper.feedIds.includes(graphId), 'Archived Graph membership leaked into normal Paper feedIds')
+  assert(afterArchivePaper.feedIds.includes(compilerId), 'Archive damaged visible Compiler membership')
+  assert(
+    !state.papers.some((paper) => paper.id === graphOnlyPreprintId),
+    'Undecided Paper from an archived-only Feed remained in normal bootstrap',
+  )
   assert(state.decisions?.[sharedPaperId]?.state === 'saved', 'Archive deleted the saved decision')
 
   provenance = await jsonRequest(`/api/papers/${encodeURIComponent(sharedPaperId)}/provenance`)
@@ -211,21 +222,66 @@ try {
   assert(mock.count(graphQuery) === graphCountBeforeArchivedSchedule, 'Archived Feed was still scheduled')
   assert(mock.count(compilerQuery) === compilerCountBeforeArchivedSchedule + 1, 'Active Compiler Feed was not scheduled')
 
+  await transition(compilerId, 'archive')
+  state = await bootstrap()
+  const decidedArchivedOnlyPaper = state.papers.find((paper) => paper.id === sharedPaperId)
+  assert(decidedArchivedOnlyPaper, 'Saved Paper disappeared when all source Feeds were archived')
+  assert(decidedArchivedOnlyPaper.feedIds.length === 0, 'Archived-only Feed IDs leaked onto a decided Paper')
+  assert(
+    !state.papers.some((paper) => paper.id === graphOnlyPreprintId),
+    'Undecided archived-only Paper reappeared after all Feeds were archived',
+  )
+  assert(state.decisions?.[sharedPaperId]?.state === 'saved', 'Decision was lost when all source Feeds were archived')
+
+  provenance = await jsonRequest(`/api/papers/${encodeURIComponent(sharedPaperId)}/provenance`)
+  assert(provenance.provenance.some((item) => item.feedId === graphId), 'All-archive transition deleted Graph provenance')
+  assert(provenance.provenance.some((item) => item.feedId === compilerId), 'All-archive transition deleted Compiler provenance')
+
+  const compilerRestored = await transition(compilerId, 'restore')
+  assert(compilerRestored.feed.active === false && !compilerRestored.feed.archivedAt, 'Compiler restore must return paused')
+  state = await bootstrap()
+  const compilerOnlyShared = state.papers.find((paper) => paper.id === sharedPaperId)
+  assert(
+    compilerOnlyShared?.feedIds.length === 1 && compilerOnlyShared.feedIds[0] === compilerId,
+    'Restoring Compiler Feed did not reveal retained historical membership',
+  )
+  assert(
+    !state.papers.some((paper) => paper.id === graphOnlyPreprintId),
+    'Graph-only preprint became visible while Graph Feed remained archived',
+  )
+
+  const graphCountBeforeRestore = mock.count(graphQuery)
   const restored = await transition(graphId, 'restore')
   assert(restored.feed.active === false && !restored.feed.archivedAt, 'Restore must return Feed in paused state')
+  state = await bootstrap()
+  const restoredShared = state.papers.find((paper) => paper.id === sharedPaperId)
+  const restoredPreprint = state.papers.find((paper) => paper.id === graphOnlyPreprintId)
+  assert(restoredShared?.feedIds.includes(graphId), 'Restoring Graph Feed did not reveal retained shared membership')
+  assert(restoredShared?.feedIds.includes(compilerId), 'Restoring Graph Feed damaged Compiler membership')
+  assert(
+    restoredPreprint?.feedIds.length === 1 && restoredPreprint.feedIds[0] === graphId,
+    'Restoring Graph Feed did not reveal retained preprint membership',
+  )
+  assert(mock.count(graphQuery) === graphCountBeforeRestore, 'Restore unexpectedly re-fetched provider data')
+
   const graphCountBeforePausedSchedule = mock.count(graphQuery)
+  const compilerCountBeforePausedSchedule = mock.count(compilerQuery)
   await scheduled(Date.parse('2026-09-07T00:00:00Z'))
-  assert(mock.count(graphQuery) === graphCountBeforePausedSchedule, 'Restored-paused Feed was scheduled')
+  assert(mock.count(graphQuery) === graphCountBeforePausedSchedule, 'Restored-paused Graph Feed was scheduled')
+  assert(mock.count(compilerQuery) === compilerCountBeforePausedSchedule, 'Restored-paused Compiler Feed was scheduled')
 
   await transition(graphId, 'resume')
   await scheduled(Date.parse('2026-09-07T06:00:00Z'))
   assert(mock.count(graphQuery) === graphCountBeforePausedSchedule + 1, 'Resumed Graph Feed was not scheduled')
+  assert(mock.count(compilerQuery) === compilerCountBeforePausedSchedule, 'Paused Compiler Feed was unexpectedly scheduled')
 
   state = await bootstrap()
   assert(state.papers.filter((paper) => paper.id === sharedPaperId).length === 1, 'Lifecycle transitions duplicated canonical Paper')
   assert(state.decisions?.[sharedPaperId]?.state === 'saved', 'Lifecycle transitions lost decision history')
 
-  console.log('Multi-Feed lifecycle smoke passed: canonical identity, history retention, independent edits, and scheduling states verified.')
+  console.log(
+    'Multi-Feed lifecycle smoke passed: canonical identity, archive-aware bootstrap visibility, retained history, independent edits, and scheduling states verified.',
+  )
 } catch (error) {
   exitCode = 1
   console.error(error)
