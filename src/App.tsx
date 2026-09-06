@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { decisionRepository, type PersistenceMode } from './decisionRepository'
 import { demoFeeds, demoPapers } from './demoData'
 import type {
   Decision,
@@ -7,7 +8,6 @@ import type {
   PublicationStatus,
   RecommendationBucket,
 } from './domain'
-import { clearDecisions, loadDecisions, saveDecisions } from './storage'
 
 type Tab = 'inbox' | 'saved' | 'archive' | 'feeds'
 
@@ -168,7 +168,24 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('inbox')
-  const [decisions, setDecisions] = useState(() => loadDecisions())
+  const [decisions, setDecisions] = useState<Record<string, Decision>>({})
+  const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>('local')
+  const [persistenceReady, setPersistenceReady] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    void decisionRepository.load().then(({ decisions: loadedDecisions, mode }) => {
+      if (cancelled) return
+      setDecisions(loadedDecisions)
+      setPersistenceMode(mode)
+      setPersistenceReady(true)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const inbox = useMemo(
     () => demoPapers.filter((paper) => decisions[paper.id] === undefined),
@@ -193,26 +210,23 @@ export default function App() {
       modelVersion: paper.recommendation?.modelVersion,
     }
 
-    setDecisions((previous) => {
-      const next = { ...previous, [paper.id]: decision }
-      saveDecisions(next)
-      return next
-    })
+    setDecisions((previous) => ({ ...previous, [paper.id]: decision }))
+    void decisionRepository.upsert(decision).then(setPersistenceMode)
   }
 
   function returnToInbox(paperId: string) {
     setDecisions((previous) => {
       const next = { ...previous }
       delete next[paperId]
-      saveDecisions(next)
       return next
     })
+    void decisionRepository.remove(paperId).then(setPersistenceMode)
   }
 
   function resetDemo() {
-    clearDecisions()
     setDecisions({})
     setTab('inbox')
+    void decisionRepository.clear().then(setPersistenceMode)
   }
 
   const processedCount = demoPapers.length - inbox.length
@@ -223,8 +237,11 @@ export default function App() {
         <div>
           <p className="eyebrow">Paper Collector</p>
           <h1>{tab === 'inbox' ? 'Inbox' : tab === 'saved' ? 'Saved' : tab === 'archive' ? 'Archive' : 'Feeds'}</h1>
+          <p className={`persistence-status persistence-${persistenceMode}`}>
+            {persistenceMode === 'cloud' ? 'Cloud sync' : 'Local fallback'}
+          </p>
         </div>
-        {tab === 'inbox' ? (
+        {tab === 'inbox' && persistenceReady ? (
           <div className="queue-count" aria-label={`${inbox.length} papers remaining`}>
             <strong>{inbox.length}</strong>
             <span>left</span>
@@ -233,7 +250,11 @@ export default function App() {
       </header>
 
       <main>
-        {tab === 'inbox' ? (
+        {!persistenceReady ? (
+          <EmptyState title="Loading Inbox" body="Loading your paper triage state." />
+        ) : null}
+
+        {persistenceReady && tab === 'inbox' ? (
           <>
             <div className="progress-row">
               <span>{processedCount} processed</span>
@@ -256,7 +277,7 @@ export default function App() {
           </>
         ) : null}
 
-        {tab === 'saved' ? (
+        {persistenceReady && tab === 'saved' ? (
           <section className="paper-list">
             {saved.length ? (
               saved.map((paper) => (
@@ -273,7 +294,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {tab === 'archive' ? (
+        {persistenceReady && tab === 'archive' ? (
           <section className="paper-list">
             {rejected.length ? (
               rejected.map((paper) => (
@@ -290,7 +311,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {tab === 'feeds' ? (
+        {persistenceReady && tab === 'feeds' ? (
           <section className="feed-list">
             {demoFeeds.map((feed) => (
               <article className="feed-card" key={feed.id}>
