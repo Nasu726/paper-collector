@@ -34,6 +34,18 @@ export type Paper = {
   recommendation?: Recommendation
 }
 
+export type FeedIngestionStatus = 'never' | 'success' | 'error' | 'truncated'
+
+export type FeedIngestionState = {
+  status: FeedIngestionStatus
+  watermarkDate?: string
+  lastAttemptAt?: string
+  lastSuccessAt?: string
+  lastError?: string
+  lastFetched: number
+  lastPages: number
+}
+
 export type Feed = {
   id: string
   name: string
@@ -45,6 +57,7 @@ export type Feed = {
     | 'include_preprints'
   active: boolean
   providerQuery?: string
+  ingestion?: FeedIngestionState
 }
 
 export type DecisionState = 'saved' | 'rejected'
