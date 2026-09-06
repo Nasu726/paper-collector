@@ -46,3 +46,6 @@ jobs:
 
       - name: Smoke-check Feed lifecycle and checkpoint semantics
         run: npm run api:smoke:feed-lifecycle
+
+      - name: Smoke-check multi-Feed lifecycle invariants
+        run: npm run api:smoke:multifeed
