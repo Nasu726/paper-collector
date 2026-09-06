@@ -13,6 +13,7 @@ import { OpenAlexProvider } from './providers/openalex'
 type Env = {
   DB: D1Database
   OPENALEX_API_KEY?: string
+  OPENALEX_BASE_URL?: string
 }
 
 type DecisionRow = {
@@ -293,7 +294,10 @@ async function refreshFeed(request: Request, env: Env, feedId: string): Promise<
   const fromDate = body.fromDate ?? daysBefore(toDate, 13)
   if (fromDate > toDate) return error('fromDate must not be after toDate.')
 
-  const provider = new OpenAlexProvider({ apiKey: env.OPENALEX_API_KEY })
+  const provider = new OpenAlexProvider({
+    apiKey: env.OPENALEX_API_KEY,
+    baseUrl: env.OPENALEX_BASE_URL,
+  })
   const papers = await provider.search({
     query,
     fromDate,
