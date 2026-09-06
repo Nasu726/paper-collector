@@ -10,6 +10,7 @@ import type {
   PublicationStatus,
   RecommendationBucket,
 } from './domain'
+import { orderInboxPapers } from './inboxOrdering'
 
 type Tab = 'inbox' | 'saved' | 'archive' | 'feeds'
 
@@ -214,6 +215,12 @@ export default function App() {
     setPersistenceMode(bootstrap.mode)
   }
 
+  function refreshRecommendationOrdering() {
+    void appRepository.refreshRecommendations().then((refreshedPapers) => {
+      if (refreshedPapers) setPapers(refreshedPapers)
+    })
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -229,7 +236,7 @@ export default function App() {
   }, [])
 
   const inbox = useMemo(
-    () => papers.filter((paper) => decisions[paper.id] === undefined),
+    () => orderInboxPapers(papers, decisions),
     [decisions, papers],
   )
   const saved = useMemo(
@@ -252,7 +259,10 @@ export default function App() {
     }
 
     setDecisions((previous) => ({ ...previous, [paper.id]: decision }))
-    void appRepository.upsertDecision(decision).then(setPersistenceMode)
+    void appRepository.upsertDecision(decision).then((mode) => {
+      setPersistenceMode(mode)
+      if (mode === 'cloud') refreshRecommendationOrdering()
+    })
   }
 
   function returnToInbox(paperId: string) {
@@ -261,13 +271,19 @@ export default function App() {
       delete next[paperId]
       return next
     })
-    void appRepository.removeDecision(paperId).then(setPersistenceMode)
+    void appRepository.removeDecision(paperId).then((mode) => {
+      setPersistenceMode(mode)
+      if (mode === 'cloud') refreshRecommendationOrdering()
+    })
   }
 
   function resetDecisions() {
     setDecisions({})
     setTab('inbox')
-    void appRepository.clearDecisions().then(setPersistenceMode)
+    void appRepository.clearDecisions().then((mode) => {
+      setPersistenceMode(mode)
+      if (mode === 'cloud') refreshRecommendationOrdering()
+    })
   }
 
   const processedCount = papers.length - inbox.length
