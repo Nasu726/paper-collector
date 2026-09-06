@@ -2,19 +2,21 @@ import type {
   Decision,
   DecisionState,
   Feed,
+  FeedIngestionStatus,
   Paper,
   PaperIdentifier,
   PublicationStatus,
   RecommendationBucket,
 } from '../src/domain'
-import { persistProviderPapers } from './ingestion'
-import { OpenAlexProvider } from './providers/openalex'
+import {
+  FeedRefreshError,
+  refreshAllActiveFeeds,
+  refreshFeedById,
+  validIsoDate,
+  type RefreshEnv,
+} from './feedRefresh'
 
-type Env = {
-  DB: D1Database
-  OPENALEX_API_KEY?: string
-  OPENALEX_BASE_URL?: string
-}
+type Env = RefreshEnv
 
 type DecisionRow = {
   paper_id: string
@@ -33,6 +35,13 @@ type FeedRow = {
   source_policy: Feed['sourcePolicy']
   active: number
   provider_query: string | null
+  ingestion_status: FeedIngestionStatus | null
+  watermark_date: string | null
+  last_attempt_at: string | null
+  last_success_at: string | null
+  last_error: string | null
+  last_fetched: number | null
+  last_pages: number | null
 }
 
 type PaperRow = {
@@ -115,6 +124,17 @@ function rowToFeed(row: FeedRow): Feed {
     sourcePolicy: row.source_policy,
     active: row.active === 1,
     providerQuery: row.provider_query ?? undefined,
+    ingestion: row.ingestion_status
+      ? {
+          status: row.ingestion_status,
+          watermarkDate: row.watermark_date ?? undefined,
+          lastAttemptAt: row.last_attempt_at ?? undefined,
+          lastSuccessAt: row.last_success_at ?? undefined,
+          lastError: row.last_error ?? undefined,
+          lastFetched: row.last_fetched ?? 0,
+          lastPages: row.last_pages ?? 0,
+        }
+      : undefined,
   }
 }
 
@@ -168,9 +188,12 @@ async function loadDecisions(db: D1Database): Promise<Record<string, Decision>> 
 async function loadFeeds(db: D1Database): Promise<Feed[]> {
   const result = await db
     .prepare(
-      `SELECT id, name, intent, exclusions, source_policy, active, provider_query
-       FROM feeds
-       ORDER BY created_at ASC, id ASC`,
+      `SELECT f.id, f.name, f.intent, f.exclusions, f.source_policy, f.active, f.provider_query,
+              s.status AS ingestion_status, s.watermark_date, s.last_attempt_at,
+              s.last_success_at, s.last_error, s.last_fetched, s.last_pages
+       FROM feeds f
+       LEFT JOIN feed_ingestion_state s ON s.feed_id = f.id
+       ORDER BY f.created_at ASC, f.id ASC`,
     )
     .all<FeedRow>()
 
@@ -245,24 +268,14 @@ async function loadBootstrap(db: D1Database) {
   return { feeds, papers, decisions }
 }
 
-function validDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  return !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
-}
-
-function daysBefore(date: string, days: number): string {
-  const timestamp = Date.parse(`${date}T00:00:00Z`) - days * 86_400_000
-  return new Date(timestamp).toISOString().slice(0, 10)
-}
-
 async function parseRefreshBody(request: Request): Promise<RefreshBody | null> {
   if (!request.headers.get('content-type')?.includes('application/json')) return {}
   try {
     const value = (await request.json()) as unknown
     if (!value || typeof value !== 'object') return null
     const candidate = value as Record<string, unknown>
-    if (candidate.fromDate !== undefined && !validDate(candidate.fromDate)) return null
-    if (candidate.toDate !== undefined && !validDate(candidate.toDate)) return null
+    if (candidate.fromDate !== undefined && !validIsoDate(candidate.fromDate)) return null
+    if (candidate.toDate !== undefined && !validIsoDate(candidate.toDate)) return null
     return {
       fromDate: candidate.fromDate as string | undefined,
       toDate: candidate.toDate as string | undefined,
@@ -272,47 +285,16 @@ async function parseRefreshBody(request: Request): Promise<RefreshBody | null> {
   }
 }
 
-async function refreshFeed(request: Request, env: Env, feedId: string): Promise<Response> {
-  const row = await env.DB
-    .prepare(
-      `SELECT id, name, intent, exclusions, source_policy, active, provider_query
-       FROM feeds WHERE id = ?`,
-    )
-    .bind(feedId)
-    .first<FeedRow>()
-  if (!row) return error('Feed does not exist.', 404)
-
-  const feed = rowToFeed(row)
-  if (!feed.active) return error('Feed is paused.', 409)
-  const query = feed.providerQuery?.trim()
-  if (!query) return error('Feed has no provider query configured.', 409)
-
+async function refreshFeedEndpoint(request: Request, env: Env, feedId: string): Promise<Response> {
   const body = await parseRefreshBody(request)
-  if (!body) return error('Refresh body must contain ISO fromDate/toDate values.')
+  if (!body) return error('Refresh body must contain ISO YYYY-MM-DD fromDate/toDate values.')
 
-  const toDate = body.toDate ?? new Date().toISOString().slice(0, 10)
-  const fromDate = body.fromDate ?? daysBefore(toDate, 13)
-  if (fromDate > toDate) return error('fromDate must not be after toDate.')
-
-  const provider = new OpenAlexProvider({
-    apiKey: env.OPENALEX_API_KEY,
-    baseUrl: env.OPENALEX_BASE_URL,
-  })
-  const papers = await provider.search({
-    query,
-    fromDate,
-    toDate,
-    sourcePolicy: feed.sourcePolicy,
-  })
-  const result = await persistProviderPapers(env.DB, feed, papers, query)
-
-  return json({
-    feedId,
-    provider: provider.name,
-    fromDate,
-    toDate,
-    ...result,
-  })
+  try {
+    return json(await refreshFeedById(env, feedId, body))
+  } catch (cause) {
+    if (cause instanceof FeedRefreshError) return error(cause.message, cause.httpStatus)
+    throw cause
+  }
 }
 
 async function handleApi(request: Request, env: Env): Promise<Response> {
@@ -329,7 +311,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
 
   const refreshMatch = url.pathname.match(/^\/api\/feeds\/([^/]+)\/refresh$/)
   if (request.method === 'POST' && refreshMatch) {
-    return refreshFeed(request, env, decodeURIComponent(refreshMatch[1]))
+    return refreshFeedEndpoint(request, env, decodeURIComponent(refreshMatch[1]))
   }
 
   if (request.method === 'DELETE' && url.pathname === '/api/decisions') {
@@ -402,5 +384,9 @@ export default {
       console.error('Paper Collector API error', cause)
       return error('Internal server error.', 500)
     }
+  },
+
+  async scheduled(controller, env) {
+    await refreshAllActiveFeeds(env, controller.scheduledTime)
   },
 } satisfies ExportedHandler<Env>
