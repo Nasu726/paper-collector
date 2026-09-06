@@ -19,7 +19,8 @@
     "db:smoke:local": "wrangler d1 execute paper-collector --local --command=\"SELECT (SELECT COUNT(*) FROM feeds) AS feeds, (SELECT COUNT(*) FROM papers) AS papers, (SELECT COUNT(*) FROM paper_feeds) AS memberships\"",
     "api:smoke:local": "node ./scripts/smoke-worker.mjs",
     "api:smoke:ingestion": "node ./scripts/smoke-ingestion.mjs",
-    "api:smoke:feed-lifecycle": "node ./scripts/smoke-feed-lifecycle.mjs"
+    "api:smoke:feed-lifecycle": "node ./scripts/smoke-feed-lifecycle.mjs",
+    "api:smoke:multifeed": "node ./scripts/smoke-multifeed-lifecycle.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",
