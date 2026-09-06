@@ -71,6 +71,14 @@ GET  /api/feeds/archived
 
 Archived Feeds are omitted from the ordinary `/api/bootstrap` Feed list. They remain recoverable from the archive endpoint.
 
+### Inspect ingestion provenance
+
+```text
+GET /api/papers/:paperId/provenance
+```
+
+This diagnostic endpoint exposes every persisted Feed/provider origin for a canonical Paper. It is intentionally independent from the currently visible Feed list so historical provenance remains inspectable after a Feed is archived.
+
 ## Collection checkpoint reset policy
 
 Changing presentation or human-owned research description must not cause collection history to restart.
@@ -86,9 +94,29 @@ These edits **delete** the previous `feed_ingestion_state` checkpoint:
 - `providerQuery`
 - `sourcePolicy`
 
+The Feed configuration update and checkpoint deletion are submitted through one D1 `batch`, so a collection-semantics change cannot commit while leaving the stale checkpoint behind.
+
 The next normal refresh after such a collection-semantics change therefore behaves like a newly configured Feed and uses the standard fourteen-day lookback. This avoids silently skipping papers that became eligible under the new query or source policy.
 
 Explicit backfills remain diagnostic and do not advance the incremental checkpoint.
+
+## Multi-Feed identity and history
+
+Feed configuration is independent, but Paper identity is global.
+
+When two Feeds discover the same normalized DOI:
+
+- there is one canonical `papers` row
+- `paper_feeds` contains one membership for each Feed
+- the Inbox renders one canonical Paper rather than duplicate cards
+- `ingestion_provenance` retains each Feed/provider/query origin independently
+- a decision belongs to the canonical Paper and survives later Feed lifecycle changes
+
+Archiving one Feed therefore does **not** remove that Feed ID from historical Paper membership, provenance, or saved/rejected decisions. It only removes the Feed from normal management and scheduled collection.
+
+Editing one Feed must never mutate another Feed's explicit intent, query, exclusions, policy, active state, or checkpoint.
+
+These invariants are covered by the deterministic `api:smoke:multifeed` integration test.
 
 ## Validation bounds
 
