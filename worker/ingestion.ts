@@ -43,23 +43,41 @@ function preferredPaperId(paper: ProviderPaper): string {
 }
 
 async function findExistingPaper(db: D1Database, paper: ProviderPaper): Promise<ExistingPaperRow | null> {
+  const matchingPaperIds = new Set<string>()
+
   for (const identifier of paper.identifiers) {
     const row = await db
       .prepare(
-        `SELECT p.id, p.identifiers_json
-         FROM paper_identifiers i
-         JOIN papers p ON p.id = i.paper_id
-         WHERE i.kind = ? AND i.value = ? AND i.provider = ?
+        `SELECT paper_id FROM paper_identifiers
+         WHERE kind = ? AND value = ? AND provider = ?
          LIMIT 1`,
       )
       .bind(identifier.kind, identifier.value, identifierProvider(identifier))
-      .first<ExistingPaperRow>()
-    if (row) return row
+      .first<{ paper_id: string }>()
+    if (row) matchingPaperIds.add(row.paper_id)
   }
+
+  const preferredId = preferredPaperId(paper)
+  const preferredRow = await db
+    .prepare('SELECT id FROM papers WHERE id = ?')
+    .bind(preferredId)
+    .first<{ id: string }>()
+  if (preferredRow) matchingPaperIds.add(preferredRow.id)
+
+  if (matchingPaperIds.size > 1) {
+    throw new Error(
+      `Identity conflict for ${paper.provider}:${paper.providerRecordId}; matched papers ${[
+        ...matchingPaperIds,
+      ].join(', ')}`,
+    )
+  }
+
+  const [paperId] = matchingPaperIds
+  if (!paperId) return null
 
   return db
     .prepare('SELECT id, identifiers_json FROM papers WHERE id = ?')
-    .bind(preferredPaperId(paper))
+    .bind(paperId)
     .first<ExistingPaperRow>()
 }
 
