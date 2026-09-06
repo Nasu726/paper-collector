@@ -6,7 +6,7 @@ The core idea is intentionally simple: collect papers into an Inbox, inspect the
 
 ## Status
 
-Early development. Milestone 1 (the triage UI vertical slice) is complete. Milestone 2 is moving persistence from browser-only localStorage to a Cloudflare Worker + D1 backend.
+Early development. Milestone 1 (the triage UI vertical slice) is complete. Milestone 2 now has a Cloudflare Worker + D1 path for feeds, papers, recommendations, and decisions; the next major milestone is real paper ingestion.
 
 ## Product principles
 
@@ -28,28 +28,29 @@ Early development. Milestone 1 (the triage UI vertical slice) is complete. Miles
 - Cloudflare Vite plugin
 - Cloudflare Workers
 - Cloudflare D1
-- Cloudflare Access for personal deployment (planned deployment guard)
+- Cloudflare Access for personal deployment
 
 ## Development
 
-Install dependencies and initialize the local D1 database:
+Install dependencies and initialize the local D1 database with deterministic synthetic data:
 
 ```bash
 npm install
-npm run db:migrate:local
+npm run db:setup:local
 npm run dev
 ```
 
-The frontend calls the same-origin Worker API. If the API is unavailable, decision persistence falls back to localStorage so the UI remains usable during frontend-only development.
+The frontend loads feeds, papers, recommendation snapshots, and decisions from the same-origin Worker API. If the API is unavailable at bootstrap, development falls back to bundled synthetic papers plus localStorage decisions.
 
-Validation:
+Useful validation:
 
 ```bash
 npm run typecheck
 npm run build
+npm run db:smoke:local
 ```
 
-Production deployment requires creating a real D1 database and replacing the placeholder `database_id` in `wrangler.jsonc`. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Production deployment requires creating a real D1 database and replacing the placeholder `database_id` in `wrangler.jsonc`. Development seed data is intentionally separate from migrations and should not be loaded into production. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Documentation
 
