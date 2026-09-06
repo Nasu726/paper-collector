@@ -20,10 +20,17 @@ export type ProviderSearchRequest = {
   fromDate: string
   toDate: string
   sourcePolicy: Feed['sourcePolicy']
-  limit?: number
+  maxResults?: number
+}
+
+export type ProviderSearchResult = {
+  papers: ProviderPaper[]
+  pages: number
+  rawFetched: number
+  truncated: boolean
 }
 
 export interface PaperProvider {
   readonly name: string
-  search(request: ProviderSearchRequest): Promise<ProviderPaper[]>
+  search(request: ProviderSearchRequest): Promise<ProviderSearchResult>
 }
