@@ -93,6 +93,7 @@ try {
   const first = await rebuild()
   assert(first.modelVersion === 'lexical-v1', `Unexpected model version ${first.modelVersion}`)
   assert(Number.isInteger(first.generation) && first.generation > 0, 'Recommendation generation was not reserved')
+  assert(first.published === true, `Initial generation ${first.generation} was not published`)
   assert(first.visibleFeeds === before.feeds.length, `Visible Feed profile count changed from ${before.feeds.length} to ${first.visibleFeeds}`)
   assert(first.eligiblePapers === eligibleBefore.length, `Expected ${eligibleBefore.length} eligible Papers, got ${first.eligiblePapers}`)
   assert(first.globalSnapshots === eligibleBefore.length, `Expected ${eligibleBefore.length} global snapshots, got ${first.globalSnapshots}`)
@@ -107,6 +108,10 @@ try {
 
   const [parallelA, parallelB] = await Promise.all([rebuild(), rebuild()])
   assert(parallelA.generation !== parallelB.generation, 'Parallel rebuilds unexpectedly shared a generation')
+  assert(
+    parallelA.published === true || parallelB.published === true,
+    `Neither parallel generation published: ${parallelA.generation}/${parallelA.published}, ${parallelB.generation}/${parallelB.published}`,
+  )
   const afterParallel = await bootstrap()
   assert(afterParallel.papers.length === before.papers.length, 'Parallel rebuild changed Paper eligibility')
   assertOpaqueRanks(afterParallel.papers)
@@ -116,6 +121,10 @@ try {
   await putDecision(singleFeedPaper, 'saved')
 
   const learned = await rebuild()
+  assert(
+    learned.published === true,
+    `Learned generation ${learned.generation} was superseded unexpectedly; parallel generations were ${parallelA.generation}/${parallelA.published}, ${parallelB.generation}/${parallelB.published}`,
+  )
   const expectedAfterDecision = expectedSnapshotRows - 1 - singleFeedPaper.feedIds.length
   assert(learned.eligiblePapers === eligibleBefore.length - 1, `Decided Paper remained recommendation-eligible: ${learned.eligiblePapers}`)
   assert(learned.globalSnapshots === eligibleBefore.length - 1, 'Decided Paper retained a global recommendation snapshot')
@@ -132,6 +141,7 @@ try {
 
   await deleteDecision(singleFeedPaper.id)
   const restored = await rebuild()
+  assert(restored.published === true, `Restored generation ${restored.generation} was not published`)
   assert(restored.eligiblePapers === eligibleBefore.length, 'Returning a Paper to Inbox did not restore recommendation eligibility')
   assert(restored.snapshotRows === expectedSnapshotRows, 'Returning a Paper to Inbox did not restore its snapshots')
   assertOpaqueRanks((await bootstrap()).papers)
