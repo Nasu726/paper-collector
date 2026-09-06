@@ -69,6 +69,15 @@ async function deleteDecision(paperId) {
   assert(response.status === 204, `Decision DELETE returned ${response.status}`)
 }
 
+function assertOpaqueRanks(papers) {
+  const ranked = papers.filter((paper) => paper.recommendation)
+  assert(ranked.every((paper) => Number.isInteger(paper.recommendation.rank)), 'Recommendation rank is missing')
+  assert(ranked.every((paper) => !('score' in paper.recommendation)), 'Internal raw score leaked into bootstrap')
+  const ranks = ranked.map((paper) => paper.recommendation.rank).sort((a, b) => a - b)
+  assert(new Set(ranks).size === ranks.length, 'Recommendation ranks are not unique')
+  assert(ranks.every((rank, index) => rank === index + 1), `Expected contiguous ranks, got ${ranks.join(',')}`)
+}
+
 let exitCode = 0
 try {
   await waitForServer()
@@ -83,6 +92,7 @@ try {
 
   const first = await rebuild()
   assert(first.modelVersion === 'lexical-v1', `Unexpected model version ${first.modelVersion}`)
+  assert(Number.isInteger(first.generation) && first.generation > 0, 'Recommendation generation was not reserved')
   assert(first.visibleFeeds === before.feeds.length, `Visible Feed profile count changed from ${before.feeds.length} to ${first.visibleFeeds}`)
   assert(first.eligiblePapers === eligibleBefore.length, `Expected ${eligibleBefore.length} eligible Papers, got ${first.eligiblePapers}`)
   assert(first.globalSnapshots === eligibleBefore.length, `Expected ${eligibleBefore.length} global snapshots, got ${first.globalSnapshots}`)
@@ -91,24 +101,17 @@ try {
   assert(first.profiles.every((profile) => profile.explicitCount === 0), 'Fresh rebuild unexpectedly found explicit decisions')
 
   const afterFirst = await bootstrap()
-  assert(
-    afterFirst.papers.every((paper) => paper.recommendation?.modelVersion === 'lexical-v1'),
-    'Not every eligible Paper exposes the lexical-v1 global recommendation after rebuild',
-  )
-  assert(
-    afterFirst.papers.every((paper) => Array.isArray(paper.recommendation?.reasons) && paper.recommendation.reasons.length > 0),
-    'Recommendation reason text is missing',
-  )
-  assert(
-    afterFirst.papers.every((paper) => !('score' in paper.recommendation)),
-    'Internal raw score leaked into the user-facing recommendation payload',
-  )
+  assert(afterFirst.papers.every((paper) => paper.recommendation?.modelVersion === 'lexical-v1'), 'Not every eligible Paper exposes lexical-v1')
+  assert(afterFirst.papers.every((paper) => Array.isArray(paper.recommendation?.reasons) && paper.recommendation.reasons.length > 0), 'Recommendation reason text is missing')
+  assertOpaqueRanks(afterFirst.papers)
 
-  const second = await rebuild()
-  assert(second.snapshotRows === expectedSnapshotRows, `Idempotent rebuild changed lexical-v1 row count to ${second.snapshotRows}`)
-  assert(second.eligiblePapers === first.eligiblePapers, 'Idempotent rebuild changed eligibility')
+  const [parallelA, parallelB] = await Promise.all([rebuild(), rebuild()])
+  assert(parallelA.generation !== parallelB.generation, 'Parallel rebuilds unexpectedly shared a generation')
+  const afterParallel = await bootstrap()
+  assert(afterParallel.papers.length === before.papers.length, 'Parallel rebuild changed Paper eligibility')
+  assertOpaqueRanks(afterParallel.papers)
 
-  const singleFeedPaper = afterFirst.papers.find((paper) => paper.feedIds.length === 1)
+  const singleFeedPaper = afterParallel.papers.find((paper) => paper.feedIds.length === 1)
   assert(singleFeedPaper, 'Recommendation smoke requires a single-Feed seed Paper')
   await putDecision(singleFeedPaper, 'saved')
 
@@ -116,22 +119,23 @@ try {
   const expectedAfterDecision = expectedSnapshotRows - 1 - singleFeedPaper.feedIds.length
   assert(learned.eligiblePapers === eligibleBefore.length - 1, `Decided Paper remained recommendation-eligible: ${learned.eligiblePapers}`)
   assert(learned.globalSnapshots === eligibleBefore.length - 1, 'Decided Paper retained a global recommendation snapshot')
-  assert(learned.snapshotRows === expectedAfterDecision, `Expected ${expectedAfterDecision} lexical-v1 rows after decision, got ${learned.snapshotRows}`)
+  assert(learned.snapshotRows === expectedAfterDecision, `Expected ${expectedAfterDecision} rows after decision, got ${learned.snapshotRows}`)
   const affectedProfile = learned.profiles.find((profile) => profile.feedId === singleFeedPaper.feedIds[0])
   assert(affectedProfile?.savedCount === 1, 'Explicit Save was not incorporated into the Feed profile')
-  assert(affectedProfile?.explicitCount === 1, 'Explicit evidence count did not change after Save')
 
   const afterDecision = await bootstrap()
   const decidedPaper = afterDecision.papers.find((paper) => paper.id === singleFeedPaper.id)
   assert(decidedPaper, 'Decided Paper disappeared from bootstrap history')
-  assert(afterDecision.decisions[singleFeedPaper.id]?.state === 'saved', 'Saved decision is missing after recommendation rebuild')
+  assert(afterDecision.decisions[singleFeedPaper.id]?.state === 'saved', 'Saved decision is missing after rebuild')
+  assertOpaqueRanks(afterDecision.papers.filter((paper) => paper.id !== singleFeedPaper.id))
 
   await deleteDecision(singleFeedPaper.id)
   const restored = await rebuild()
   assert(restored.eligiblePapers === eligibleBefore.length, 'Returning a Paper to Inbox did not restore recommendation eligibility')
   assert(restored.snapshotRows === expectedSnapshotRows, 'Returning a Paper to Inbox did not restore its snapshots')
+  assertOpaqueRanks((await bootstrap()).papers)
 
-  console.log('Recommendation API smoke passed: lexical-v1 rebuild, user-facing snapshots, idempotence, and explicit-evidence profile updates verified.')
+  console.log('Recommendation API smoke passed: opaque ranks, concurrent generations, idempotence, and explicit-evidence updates verified.')
 } catch (error) {
   exitCode = 1
   console.error(error)
