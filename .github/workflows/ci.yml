@@ -32,6 +32,9 @@ jobs:
       - name: Test Crossref provider fixture
         run: npm run test:crossref
 
+      - name: Test recommendation semantics
+        run: npm run test:recommendation
+
       - name: Initialize local D1
         run: npm run db:setup:local
 
@@ -43,6 +46,9 @@ jobs:
 
       - name: Smoke-check feedback event API
         run: npm run api:smoke:feedback
+
+      - name: Smoke-check recommendation rebuild API
+        run: npm run api:smoke:recommendation
 
       - name: Smoke-check fixture-backed ingestion API
         run: npm run api:smoke:ingestion
