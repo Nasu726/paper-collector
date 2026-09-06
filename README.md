@@ -6,7 +6,7 @@ The core idea is intentionally simple: collect papers into an Inbox, inspect the
 
 ## Status
 
-Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, scheduled OpenAlex ingestion, DOI-based Crossref enrichment, provider field provenance, and mobile Feed management are implemented. Feedback instrumentation is the next major product milestone.
+Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, scheduled OpenAlex ingestion, DOI-based Crossref enrichment, provider field provenance, mobile Feed management, and privacy-minimized implicit feedback instrumentation are implemented. The next major product milestone is a simple recommendation baseline built on explicit decisions plus the recorded interaction evidence.
 
 ## Product principles
 
@@ -15,9 +15,9 @@ Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, s
 - original title/abstract by default
 - PDF/source link available before deciding
 - explicit feedback stays lightweight
-- implicit feedback can enrich learning later
+- implicit feedback is supporting evidence, not ground truth
 - recommendation ranks but does not hide papers
-- explicit feed intent is separate from learned preference
+- explicit Feed intent is separate from learned preference
 - provider collection queries are separate from human-facing Feed intent
 - provider disagreements are retained rather than silently discarded
 - AI is optional, not a core dependency
@@ -55,6 +55,7 @@ npm run test:openalex
 npm run test:crossref
 npm run db:smoke:local
 npm run api:smoke:local
+npm run api:smoke:feedback
 npm run api:smoke:ingestion
 npm run api:smoke:feed-lifecycle
 npm run api:smoke:multifeed
@@ -84,6 +85,22 @@ See [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md), [`docs/CROSSRE
 
 CI uses recorded fixtures and local mock scholarly APIs; tests do not require live OpenAlex or Crossref availability.
 
+## Implicit feedback
+
+The core explicit judgment remains Save / Not Interested. The app additionally records a small set of actions the user already performs:
+
+- expanding the complete abstract
+- opening the PDF
+- opening the source page
+
+Each event records whether it happened from Inbox, Saved, or Archive. Raw events do not contain a permanent recommendation weight; a future versioned ranking model will decide how to interpret them.
+
+Feedback collection is best-effort. A logging failure never blocks PDF/source navigation or downgrades otherwise healthy decision persistence.
+
+The feedback API rejects arbitrary client metadata, raw paper text/URLs, and client-supplied Feed IDs. No dwell-time, scrolling, view heartbeat, or browser fingerprint is collected.
+
+See [`docs/FEEDBACK.md`](docs/FEEDBACK.md).
+
 ## Deployment
 
 Production deployment requires creating a real D1 database and replacing the placeholder `database_id` in `wrangler.jsonc`. Development seed data is intentionally separate from migrations and should not be loaded into production. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
@@ -91,11 +108,12 @@ Production deployment requires creating a real D1 database and replacing the pla
 ## Documentation
 
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior and invariants
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current architecture and ingestion boundaries
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current runtime/data boundaries
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — logical domain model
 - [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md) — incremental refresh and Cron semantics
 - [`docs/CROSSREF_ENRICHMENT.md`](docs/CROSSREF_ENRICHMENT.md) — field evidence and Crossref conflict policy
 - [`docs/FEED_MANAGEMENT.md`](docs/FEED_MANAGEMENT.md) — Feed lifecycle and checkpoint semantics
+- [`docs/FEEDBACK.md`](docs/FEEDBACK.md) — implicit evidence confidence and privacy policy
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestone plan
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Cloudflare/D1 setup and deployment
 - [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — development rules

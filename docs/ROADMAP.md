@@ -145,21 +145,47 @@ Goal: make multiple research interests first-class.
 - [x] restore returns paused; explicit resume re-enables collection
 - [x] editing one Feed does not mutate another Feed
 - [x] deterministic CI regression covers the full lifecycle
+- [x] archived-only undecided Papers are hidden from normal bootstrap while decided history is retained (#26)
 
 Exit criterion: at least two independent research feeds coexist cleanly, share canonical Papers without duplicate Inbox records, can be configured from the mobile UI, and preserve history across pause/archive/configuration transitions.
 
-## Milestone 5 — Feedback instrumentation
+## Milestone 5 — Feedback instrumentation (#29)
 
 Goal: collect useful preference evidence without increasing input burden.
 
-- [ ] feedback event schema
-- [ ] PDF/source open events
-- [ ] abstract expansion event
-- [ ] Saved re-open event
-- [ ] privacy review of event collection
-- [ ] event confidence policy
+### Milestone 5a — Append-only feedback API (#30)
 
-Exit criterion: recommendation experiments can be evaluated from actual usage data.
+- [x] validated raw feedback event API
+- [x] `abstract_expanded`, `pdf_opened`, `source_opened` event taxonomy
+- [x] `inbox`, `saved`, `archive` surface context
+- [x] server-generated event ID and timestamp
+- [x] server-owned Paper-to-Feed membership snapshot
+- [x] arbitrary client metadata rejected
+- [x] raw event weights remain unset; weighting belongs to ranking
+- [x] bounded newest-first Paper feedback inspection API
+- [x] deterministic Worker/D1 smoke coverage
+
+### Milestone 5b — Mobile interaction instrumentation (#31)
+
+- [x] first abstract expansion per displayed Inbox Paper instance
+- [x] PDF open events
+- [x] source-page open events
+- [x] Saved reopen context represented by open events with `surface=saved`
+- [x] Archive interaction context represented by `surface=archive`
+- [x] keepalive/best-effort delivery for external-link clicks
+- [x] feedback failure does not change decision persistence mode or block navigation
+- [x] no time-on-card, view heartbeat, scroll-depth, or fingerprint collection
+
+### Milestone 5c — Confidence and privacy policy (#32)
+
+- [x] qualitative signal-strength ordering documented
+- [x] raw evidence separated from model-derived/versioned weights
+- [x] repetition must be regularized rather than grow unbounded
+- [x] privacy-minimization rules documented
+- [x] current retention assumptions documented
+- [x] AI/third-party transmission is outside the current feedback contract
+
+Exit criterion: actual usage produces structured, inspectable implicit evidence that can be consumed by recommendation experiments while the core triage flow remains unchanged and feedback failures remain non-blocking.
 
 ## Milestone 6 — Recommendation baseline
 
