@@ -104,8 +104,13 @@ async function handleCrossrefApi(request: Request, env: Env): Promise<Response |
 
 export default {
   async fetch(request, env) {
-    const crossrefResponse = await handleCrossrefApi(request, env)
-    if (crossrefResponse) return crossrefResponse
+    try {
+      const crossrefResponse = await handleCrossrefApi(request, env)
+      if (crossrefResponse) return crossrefResponse
+    } catch (cause) {
+      console.error('Paper Collector enrichment API error', cause)
+      return error('Internal server error.', 500)
+    }
     return baseHandler.fetch(request, env)
   },
 
