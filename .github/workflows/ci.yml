@@ -49,3 +49,6 @@ jobs:
 
       - name: Smoke-check multi-Feed lifecycle invariants
         run: npm run api:smoke:multifeed
+
+      - name: Smoke-check feedback event API
+        run: npm run api:smoke:feedback
