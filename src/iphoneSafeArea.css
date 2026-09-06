@@ -1,0 +1,47 @@
+@media (max-width: 699px) {
+  .app-shell {
+    padding-top: calc(max(18px, env(safe-area-inset-top)) + 10px);
+    padding-right: max(22px, calc(env(safe-area-inset-right) + 14px));
+    padding-left: max(22px, calc(env(safe-area-inset-left) + 14px));
+    padding-bottom: calc(118px + max(8px, env(safe-area-inset-bottom)));
+  }
+
+  .app-shell.inbox-mode {
+    padding-bottom: calc(194px + max(8px, env(safe-area-inset-bottom)));
+  }
+
+  .app-header-inbox {
+    padding-top: 6px;
+  }
+
+  .bottom-nav {
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: min(
+      calc(100% - 32px - env(safe-area-inset-left) - env(safe-area-inset-right)),
+      688px
+    );
+    padding: 7px 8px;
+    border: 1px solid rgba(206, 203, 194, 0.92);
+    border-radius: 22px;
+    background: rgba(250, 248, 243, 0.96);
+    box-shadow: 0 8px 30px rgba(35, 37, 35, 0.1);
+    overflow: hidden;
+  }
+
+  .bottom-nav button {
+    border-radius: 14px;
+  }
+
+  .inbox-mode .decision-bar {
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 74px);
+    width: min(
+      calc(100% - 36px - env(safe-area-inset-left) - env(safe-area-inset-right)),
+      684px
+    );
+    padding: 8px;
+    border: 1px solid rgba(206, 203, 194, 0.92);
+    border-radius: 20px;
+    background: rgba(246, 244, 239, 0.97);
+    box-shadow: 0 10px 30px rgba(35, 37, 35, 0.1);
+  }
+}
