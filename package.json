@@ -9,6 +9,7 @@
     "build": "npm run typecheck && vite build",
     "test:openalex": "tsx ./scripts/test-openalex.ts",
     "test:crossref": "tsx ./scripts/test-crossref.ts",
+    "test:recommendation": "tsx ./scripts/test-recommendation.ts",
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",
     "cf:typegen": "wrangler types",
@@ -19,6 +20,7 @@
     "db:smoke:local": "wrangler d1 execute paper-collector --local --command=\"SELECT (SELECT COUNT(*) FROM feeds) AS feeds, (SELECT COUNT(*) FROM papers) AS papers, (SELECT COUNT(*) FROM paper_feeds) AS memberships\"",
     "api:smoke:local": "node ./scripts/smoke-worker.mjs",
     "api:smoke:feedback": "node ./scripts/smoke-feedback.mjs",
+    "api:smoke:recommendation": "node ./scripts/smoke-recommendation.mjs",
     "api:smoke:ingestion": "node ./scripts/smoke-ingestion.mjs",
     "api:smoke:feed-lifecycle": "node ./scripts/smoke-feed-lifecycle.mjs",
     "api:smoke:multifeed": "node ./scripts/smoke-multifeed-lifecycle.mjs"
