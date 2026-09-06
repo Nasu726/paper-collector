@@ -2,39 +2,108 @@
 
 ## 1. Goals
 
-The architecture is optimized for a personal, mobile-first web application that can begin as a lightweight prototype and later move to Cloudflare-hosted persistence and scheduled ingestion without rewriting the UI.
+The architecture is optimized for a personal, mobile-first web application. The UI must stay simple while persistence, ingestion, identity resolution, and recommendation become progressively more capable behind stable boundaries.
 
-## 2. Planned stack
+## 2. Current stack
 
 ### Frontend
 - React
 - TypeScript
 - Vite
-- responsive CSS with no component-library dependency in the MVP
+- responsive CSS with no component-library dependency
 
-### Hosting / backend target
-- Cloudflare Workers
+### Runtime / persistence
+- Cloudflare Vite plugin
+- Cloudflare Worker API
 - Cloudflare D1
-- scheduled Workers / Cron Triggers for ingestion
-- Cloudflare Access for personal authentication when deployed
+- localStorage as a development/offline fallback for decision state
 
-The first UI milestone intentionally uses local persistence so interaction design can be validated before backend work.
+### Planned platform additions
+- Cron Triggers / scheduled Workers for ingestion
+- Cloudflare Access for personal authentication at deployment
 
-## 3. Layering
+## 3. Runtime topology
 
 ```text
-UI
+Browser / PWA
+    |
+    | same-origin /api/*
+    v
+Cloudflare Worker
+    |
+    v
+Cloudflare D1
+
+Static SPA assets are served by the same Worker deployment.
+```
+
+`wrangler.jsonc` routes `/api/*` to the Worker first and uses `single-page-application` fallback for the React app.
+
+## 4. Frontend layering
+
+```text
+React UI
   ↓
 Application state / use-cases
   ↓
-Repository interfaces
-  ↓
-LocalStorage adapter (prototype)
-  ↓ later
-D1/API adapter
+Decision repository abstraction
+  ├─ API adapter → Worker → D1
+  └─ localStorage mirror/fallback
 ```
 
-External paper providers sit behind ingestion adapters:
+The UI does not call localStorage directly. The resilient decision repository first attempts the Worker API. A successful cloud bootstrap is mirrored locally. If the API is unavailable, the current-device local copy keeps triage usable.
+
+The local copy is not the production source of truth once D1 is configured.
+
+## 5. Worker API
+
+Current endpoints:
+
+- `GET /api/health` — verifies Worker/D1 reachability
+- `GET /api/bootstrap` — returns persisted decision state
+- `PUT /api/decisions/:paperId` — creates or replaces one explicit decision
+- `DELETE /api/decisions/:paperId` — returns a paper to Inbox
+- `DELETE /api/decisions` — resets decisions (development/demo operation)
+
+The API validates decision state, feed IDs, timestamps, recommendation buckets, and model-version fields before writing to D1.
+
+## 6. D1 schema
+
+The first migration creates tables for:
+
+- `feeds`
+- `papers`
+- `paper_feeds`
+- `decisions`
+- `recommendation_snapshots`
+- `feedback_events`
+
+This deliberately establishes the eventual normalized schema before real ingestion is connected.
+
+During Milestone 2a, demo papers/feeds are still bundled in the frontend while decisions move to D1. For that transitional reason `decisions.paper_id` is not yet constrained by a foreign key to `papers`; Milestone 2b seeds papers into D1 and removes the architectural dependence on bundled demo records.
+
+## 7. Current data flow
+
+1. React loads bundled demo papers/feeds.
+2. The decision repository requests `GET /api/bootstrap`.
+3. If the API succeeds, D1 decisions are the source of truth and are mirrored locally.
+4. If the API is unavailable, localStorage decisions are used.
+5. Undecided papers form Inbox.
+6. Save / Not interested updates UI optimistically and persists through the repository.
+7. Saved and Archive derive from the same decision map.
+8. Opening PDF/source does not alter the explicit decision.
+
+## 8. Backend migration path
+
+1. **Milestone 2a:** Worker runtime, D1 schema, decision API, repository abstraction.
+2. **Milestone 2b:** seed/load feeds and papers from D1; make cloud persistence complete across devices.
+3. Add ingestion provider adapters and provenance.
+4. Add feedback event logging.
+5. Add ranking/recommendation service.
+
+## 9. Ingestion boundary
+
+External paper providers sit behind adapters:
 
 ```text
 Crossref / OpenAlex / arXiv / other sources
@@ -48,65 +117,27 @@ Crossref / OpenAlex / arXiv / other sources
           Feed membership
 ```
 
-Recommendation consumes normalized papers plus feedback events. It does not own the Inbox and cannot silently remove items.
+Publication status and source type remain separate. `journal article`, `conference paper`, `preprint`, and `accepted when verifiable` must not collapse into an ambiguous `peerReviewed` boolean.
 
-## 4. Frontend boundaries
+Provider-specific metadata must remain auditable enough to explain how publication status was inferred.
 
-### Domain types
-Pure TypeScript types describing papers, feeds, decisions and recommendation buckets.
+## 10. Identity resolution
 
-### Persistence adapter
-The UI calls a small persistence module rather than using `localStorage` directly. The implementation can later be replaced by an API client.
+Identity resolution is a first-class subsystem. A canonical paper has zero or more identifiers. Exact DOI and arXiv matches are strong merges; title-based matching is heuristic and must retain provenance.
 
-### Screens
-- Inbox
-- Saved
-- Archive
-- Feeds
-
-The Inbox is the default route/state and must remain the shortest path from app open to paper triage.
-
-## 5. Data flow for the prototype
-
-1. Seed demo papers are loaded.
-2. Existing local decisions are loaded.
-3. Undecided papers form Inbox.
-4. Save / Not interested writes a decision immediately.
-5. Saved and Archive derive from the same decision state.
-6. Opening PDF/source does not alter the explicit decision.
-
-## 6. Backend migration path
-
-The prototype should migrate in these steps:
-
-1. Introduce Worker API endpoints while preserving frontend interfaces.
-2. Move decisions and feeds from localStorage to D1.
-3. Add normalized `papers` and `paper_identifiers` tables.
-4. Add ingestion jobs and provider adapters.
-5. Add feedback event logging.
-6. Add ranking/recommendation service.
-
-## 7. Ingestion constraints
-
-The system must distinguish publication status from source type. `journal article`, `conference paper`, `preprint`, and `accepted when verifiable` should not be collapsed into one ambiguous boolean such as `peerReviewed`.
-
-Provider-specific metadata must be preserved sufficiently to audit how a publication status was inferred.
-
-## 8. Identity resolution
-
-Identity resolution is a first-class subsystem, not a UI convenience. The canonical paper record should have zero or more identifiers. Exact DOI and arXiv matches are strong merges; title-based matching is heuristic and should retain provenance.
-
-## 9. Recommendation invariants
+## 11. Recommendation invariants
 
 - recommendation may reorder Inbox
 - recommendation may add a coarse bucket and explanation
 - recommendation must not remove eligible papers
 - explicit feed text is immutable except by user action
 - learned preferences are versioned separately
-- model/version metadata should be stored with decisions once ranking is introduced
+- model/version metadata is stored with decisions once ranking is introduced
 
-## 10. Security and privacy
+## 12. Security and privacy
 
-The application is initially intended for one user. Deployment should therefore prefer access control at the edge plus a private backend surface rather than building a custom account system prematurely.
+The application is initially intended for one user. Deployment should prefer Cloudflare Access in front of the application rather than building an account system prematurely.
+
+The Worker API is same-origin and should sit behind the same Access policy as the SPA once deployed.
 
 No paper abstract or browsing event should be sent to an LLM unless a future AI feature explicitly requires it.
