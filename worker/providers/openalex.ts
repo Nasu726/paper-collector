@@ -149,7 +149,7 @@ export class OpenAlexProvider implements PaperProvider {
     this.apiKey = options.apiKey
     this.baseUrl = (options.baseUrl ?? 'https://api.openalex.org').replace(/\/$/, '')
     this.timeoutMs = options.timeoutMs ?? 10_000
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init))
   }
 
   async search(request: ProviderSearchRequest): Promise<ProviderPaper[]> {
