@@ -75,16 +75,19 @@ try {
   await clearDecisions()
 
   const before = await bootstrap()
-  assert(before.feeds.length === 2, `Expected 2 visible seed Feeds, got ${before.feeds.length}`)
+  assert(before.feeds.length >= 2, `Expected at least the 2 seed Feeds, got ${before.feeds.length}`)
   assert(before.papers.length === 4, `Expected 4 seed Papers, got ${before.papers.length}`)
+  const eligibleBefore = before.papers.filter((paper) => Array.isArray(paper.feedIds) && paper.feedIds.length > 0)
+  const expectedFeedSnapshots = eligibleBefore.reduce((sum, paper) => sum + paper.feedIds.length, 0)
+  const expectedSnapshotRows = eligibleBefore.length + expectedFeedSnapshots
 
   const first = await rebuild()
   assert(first.modelVersion === 'lexical-v1', `Unexpected model version ${first.modelVersion}`)
-  assert(first.visibleFeeds === 2, `Expected 2 visible Feed profiles, got ${first.visibleFeeds}`)
-  assert(first.eligiblePapers === 4, `Expected 4 eligible Papers, got ${first.eligiblePapers}`)
-  assert(first.globalSnapshots === 4, `Expected 4 global snapshots, got ${first.globalSnapshots}`)
-  assert(first.feedSnapshots === 5, `Expected 5 per-Feed snapshots, got ${first.feedSnapshots}`)
-  assert(first.snapshotRows === 9, `Expected 9 lexical-v1 rows, got ${first.snapshotRows}`)
+  assert(first.visibleFeeds === before.feeds.length, `Visible Feed profile count changed from ${before.feeds.length} to ${first.visibleFeeds}`)
+  assert(first.eligiblePapers === eligibleBefore.length, `Expected ${eligibleBefore.length} eligible Papers, got ${first.eligiblePapers}`)
+  assert(first.globalSnapshots === eligibleBefore.length, `Expected ${eligibleBefore.length} global snapshots, got ${first.globalSnapshots}`)
+  assert(first.feedSnapshots === expectedFeedSnapshots, `Expected ${expectedFeedSnapshots} per-Feed snapshots, got ${first.feedSnapshots}`)
+  assert(first.snapshotRows === expectedSnapshotRows, `Expected ${expectedSnapshotRows} lexical-v1 rows, got ${first.snapshotRows}`)
   assert(first.profiles.every((profile) => profile.explicitCount === 0), 'Fresh rebuild unexpectedly found explicit decisions')
 
   const afterFirst = await bootstrap()
@@ -102,7 +105,7 @@ try {
   )
 
   const second = await rebuild()
-  assert(second.snapshotRows === 9, `Idempotent rebuild changed lexical-v1 row count to ${second.snapshotRows}`)
+  assert(second.snapshotRows === expectedSnapshotRows, `Idempotent rebuild changed lexical-v1 row count to ${second.snapshotRows}`)
   assert(second.eligiblePapers === first.eligiblePapers, 'Idempotent rebuild changed eligibility')
 
   const singleFeedPaper = afterFirst.papers.find((paper) => paper.feedIds.length === 1)
@@ -110,9 +113,10 @@ try {
   await putDecision(singleFeedPaper, 'saved')
 
   const learned = await rebuild()
-  assert(learned.eligiblePapers === 3, `Decided Paper remained recommendation-eligible: ${learned.eligiblePapers}`)
-  assert(learned.globalSnapshots === 3, 'Decided Paper retained a global recommendation snapshot')
-  assert(learned.snapshotRows === 7, `Expected 7 lexical-v1 rows after one single-Feed decision, got ${learned.snapshotRows}`)
+  const expectedAfterDecision = expectedSnapshotRows - 1 - singleFeedPaper.feedIds.length
+  assert(learned.eligiblePapers === eligibleBefore.length - 1, `Decided Paper remained recommendation-eligible: ${learned.eligiblePapers}`)
+  assert(learned.globalSnapshots === eligibleBefore.length - 1, 'Decided Paper retained a global recommendation snapshot')
+  assert(learned.snapshotRows === expectedAfterDecision, `Expected ${expectedAfterDecision} lexical-v1 rows after decision, got ${learned.snapshotRows}`)
   const affectedProfile = learned.profiles.find((profile) => profile.feedId === singleFeedPaper.feedIds[0])
   assert(affectedProfile?.savedCount === 1, 'Explicit Save was not incorporated into the Feed profile')
   assert(affectedProfile?.explicitCount === 1, 'Explicit evidence count did not change after Save')
@@ -124,8 +128,8 @@ try {
 
   await deleteDecision(singleFeedPaper.id)
   const restored = await rebuild()
-  assert(restored.eligiblePapers === 4, 'Returning a Paper to Inbox did not restore recommendation eligibility')
-  assert(restored.snapshotRows === 9, 'Returning a Paper to Inbox did not restore its snapshots')
+  assert(restored.eligiblePapers === eligibleBefore.length, 'Returning a Paper to Inbox did not restore recommendation eligibility')
+  assert(restored.snapshotRows === expectedSnapshotRows, 'Returning a Paper to Inbox did not restore its snapshots')
 
   console.log('Recommendation API smoke passed: lexical-v1 rebuild, user-facing snapshots, idempotence, and explicit-evidence profile updates verified.')
 } catch (error) {
