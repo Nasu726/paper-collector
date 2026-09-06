@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import {
   CrossrefProvider,
   crossrefDate,
+  crossrefDoiPath,
   normalizeCrossrefWork,
 } from '../worker/providers/crossref'
 
@@ -21,6 +22,7 @@ assert.equal(crossrefDate({ 'date-parts': [[2026]] }), '2026')
 assert.equal(crossrefDate({ 'date-parts': [[2026, 9]] }), '2026-09')
 assert.equal(crossrefDate({ 'date-parts': [[2026, 9, 2]] }), '2026-09-02')
 assert.equal(crossrefDate({ 'date-parts': [[2026, 13, 1]] }), undefined)
+assert.equal(crossrefDoiPath('10.5555/path/inside:suffix'), '10.5555/path/inside%3Asuffix')
 
 const normalized = normalizeCrossrefWork({
   DOI: 'https://doi.org/10.5555/Example.Test',
@@ -62,7 +64,7 @@ assert.equal(record.publishedAt, '2026-09-02')
 assert.equal(record.publicationStatus, 'published')
 assert(record.evidence.some((item) => item.fieldName === 'published_at' && item.sourceField === 'published-online'))
 assert.equal(new URL(lastUrl).searchParams.get('mailto'), 'paper@example.test')
-assert.match(decodeURIComponent(new URL(lastUrl).pathname), /10\.5555\/graph\.test\.2026$/)
+assert.equal(new URL(lastUrl).pathname, '/works/10.5555/graph.test.2026')
 
 const notFoundProvider = new CrossrefProvider({
   baseUrl: 'https://api.crossref.test',
