@@ -214,7 +214,7 @@ async function patchFeed(request: Request, env: FeedLifecycleEnv, feedId: string
   const collectionReset =
     next.providerQuery !== (current.provider_query ?? '') || next.sourcePolicy !== current.source_policy
 
-  await env.DB
+  const update = env.DB
     .prepare(
       `UPDATE feeds SET
          name = ?, intent = ?, exclusions = ?, source_policy = ?, provider_query = ?,
@@ -229,10 +229,12 @@ async function patchFeed(request: Request, env: FeedLifecycleEnv, feedId: string
       next.providerQuery,
       feedId,
     )
-    .run()
 
   if (collectionReset) {
-    await env.DB.prepare('DELETE FROM feed_ingestion_state WHERE feed_id = ?').bind(feedId).run()
+    const reset = env.DB.prepare('DELETE FROM feed_ingestion_state WHERE feed_id = ?').bind(feedId)
+    await env.DB.batch([update, reset])
+  } else {
+    await update.run()
   }
 
   const row = await loadFeed(env.DB, feedId)
