@@ -89,6 +89,14 @@ class ApiAppRepository {
     return payload
   }
 
+  async rebuildRecommendations(): Promise<void> {
+    const response = await fetch('/api/recommendations/rebuild', {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw await responseError(response, 'Recommendation rebuild failed')
+  }
+
   async refreshFeed(feedId: string): Promise<FeedRefreshResponse> {
     const response = await fetch(`/api/feeds/${encodeURIComponent(feedId)}/refresh`, {
       method: 'POST',
@@ -202,6 +210,7 @@ class ResilientAppRepository {
   private readonly api = new ApiAppRepository()
   private readonly local = new LocalAppRepository()
   private mode: PersistenceMode = 'cloud'
+  private recommendationRefreshQueue: Promise<Paper[] | null> = Promise.resolve(null)
 
   private async loadCloud(): Promise<AppBootstrap> {
     const bootstrap = await this.api.load()
@@ -221,6 +230,31 @@ class ResilientAppRepository {
       this.mode = 'local'
       return { ...this.local.load(), mode: this.mode }
     }
+  }
+
+  /**
+   * Rebuild recommendations without blocking triage. Calls are serialized so rapid
+   * decisions in one client cannot make an older refresh response overtake a newer one.
+   * Only Paper metadata/order is returned; optimistic decision state stays owned by App.
+   */
+  refreshRecommendations(): Promise<Paper[] | null> {
+    if (this.mode !== 'cloud') return Promise.resolve(null)
+
+    const next = this.recommendationRefreshQueue.then(async () => {
+      if (this.mode !== 'cloud') return null
+      try {
+        await this.api.rebuildRecommendations()
+        const bootstrap = await this.api.load()
+        return bootstrap.papers
+      } catch {
+        // Ranking refresh is best-effort. Decision persistence has already completed,
+        // so recommendation failure must not downgrade cloud persistence or block triage.
+        return null
+      }
+    })
+
+    this.recommendationRefreshQueue = next.catch(() => null)
+    return next
   }
 
   async refreshFeed(feedId: string): Promise<{ refresh: FeedRefreshResponse; bootstrap: AppBootstrap }> {
