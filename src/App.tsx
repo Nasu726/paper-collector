@@ -133,7 +133,6 @@ function FullPaperCard({
       <section className="abstract-section">
         <div className="section-heading">
           <h3>Abstract</h3>
-          <span>Original</span>
         </div>
         <p className={expanded ? 'abstract' : 'abstract abstract-collapsed'}>{paper.abstract}</p>
         <button className="text-button" type="button" onClick={toggleAbstract}>
@@ -272,13 +271,16 @@ export default function App() {
   }
 
   const processedCount = papers.length - inbox.length
+  const inboxHasPaper = tab === 'inbox' && Boolean(inbox[0])
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
+    <div className={`app-shell${inboxHasPaper ? ' inbox-mode' : ''}`}>
+      <header className={`app-header${tab === 'inbox' ? ' app-header-inbox' : ''}`}>
         <div>
           <p className="eyebrow">Paper Collector</p>
-          <h1>{tab === 'inbox' ? 'Inbox' : tab === 'saved' ? 'Saved' : tab === 'archive' ? 'Archive' : 'Feeds'}</h1>
+          {tab !== 'inbox' ? (
+            <h1>{tab === 'saved' ? 'Saved' : tab === 'archive' ? 'Archive' : 'Feeds'}</h1>
+          ) : null}
           <p className={`persistence-status persistence-${persistenceMode}`}>
             {persistenceMode === 'cloud' ? 'Cloud sync' : 'Local fallback'}
           </p>
