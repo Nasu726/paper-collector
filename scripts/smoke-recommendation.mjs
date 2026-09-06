@@ -127,7 +127,8 @@ try {
   const decidedPaper = afterDecision.papers.find((paper) => paper.id === singleFeedPaper.id)
   assert(decidedPaper, 'Decided Paper disappeared from bootstrap history')
   assert(afterDecision.decisions[singleFeedPaper.id]?.state === 'saved', 'Saved decision is missing after rebuild')
-  assertOpaqueRanks(afterDecision.papers.filter((paper) => paper.id !== singleFeedPaper.id))
+  assert(!decidedPaper.recommendation, `Decided Paper retained a live recommendation at rank ${decidedPaper.recommendation?.rank}`)
+  assertOpaqueRanks(afterDecision.papers)
 
   await deleteDecision(singleFeedPaper.id)
   const restored = await rebuild()
