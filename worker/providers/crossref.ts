@@ -89,6 +89,10 @@ export function crossrefDate(value: CrossrefDateParts | null | undefined): strin
   return `${yearMonth}-${String(day).padStart(2, '0')}`
 }
 
+export function crossrefDoiPath(doi: string): string {
+  return doi.split('/').map((segment) => encodeURIComponent(segment)).join('/')
+}
+
 function authors(work: CrossrefWork): string[] | undefined {
   const names = (work.author ?? [])
     .map((author) => {
@@ -177,7 +181,7 @@ export class CrossrefProvider {
     const doi = normalizeDoi(doiValue)
     if (!doi) throw new Error(`Invalid DOI: ${doiValue}`)
 
-    const url = new URL(`${this.baseUrl}/works/${encodeURIComponent(doi)}`)
+    const url = new URL(`${this.baseUrl}/works/${crossrefDoiPath(doi)}`)
     if (this.mailto) url.searchParams.set('mailto', this.mailto)
 
     const controller = new AbortController()
