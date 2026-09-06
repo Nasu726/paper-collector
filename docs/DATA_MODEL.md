@@ -1,6 +1,6 @@
 # Data Model
 
-This document describes the target logical model. The first UI prototype stores only a subset locally.
+This document describes the current logical model and the D1 structures that back it.
 
 ## Paper
 
@@ -21,7 +21,7 @@ type Paper = {
 }
 ```
 
-`id` is an internal canonical identifier. It must not assume that DOI is always present.
+`id` is an internal canonical identifier. A newly ingested paper prefers a normalized DOI-based ID when a DOI exists; otherwise the first provider identity is used. The canonical ID must remain stable once other identifiers are attached.
 
 ## PublicationStatus
 
@@ -33,7 +33,7 @@ type PublicationStatus =
   | 'unknown'
 ```
 
-`accepted` should only be used when acceptance can actually be verified from source metadata.
+`accepted` and `published` are evidence-bearing states, not synonyms for `peer reviewed`. A provider adapter must only emit them when its metadata supports the distinction.
 
 ## PaperIdentifier
 
@@ -45,7 +45,12 @@ type PaperIdentifier = {
 }
 ```
 
-Identifiers should be normalized before uniqueness comparison.
+Normalization rules currently include:
+
+- DOI: lowercase bare DOI without `https://doi.org/` or `doi:` prefix
+- OpenAlex work: uppercase `W...` value stored as `kind: 'provider', provider: 'openalex'`
+
+The domain copy of identifiers is stored in `papers.identifiers_json` for bootstrap simplicity. The `paper_identifiers` table stores the same strong identities in normalized relational form for lookup and uniqueness checks.
 
 ## Feed
 
@@ -60,10 +65,11 @@ type Feed = {
     | 'accepted_when_verifiable'
     | 'include_preprints'
   active: boolean
+  providerQuery?: string
 }
 ```
 
-The `intent` and `exclusions` fields are explicit user configuration. Learned preferences must not overwrite them.
+`intent` is explicit human-facing research intent. `providerQuery` is the concrete query sent to the scholarly provider. They are deliberately separate so provider syntax, ranking models, and learned preference state cannot silently rewrite the user's intent.
 
 ## Decision
 
@@ -78,7 +84,22 @@ type Decision = {
 }
 ```
 
-A decision should be reversible. Historical decision events may be added later if we need an audit trail rather than only current state.
+A decision is reversible. The current table stores the latest explicit state; later feedback instrumentation may add historical decision events.
+
+## Ingestion provenance
+
+Every provider-created paper/feed association records:
+
+- canonical `paper_id`
+- `feed_id`
+- provider name
+- provider record ID
+- concrete query text
+- provider update timestamp when supplied
+- first-seen timestamp
+- last-seen timestamp
+
+This provenance answers "why is this paper in this Feed?" independently of recommendation.
 
 ## FeedbackEvent
 
@@ -131,20 +152,38 @@ type LearnedFeedProfile = {
 }
 ```
 
-This is separate from `Feed.intent` by design.
+This remains separate from both `Feed.intent` and `Feed.providerQuery`.
 
-## Target relational tables
+## Current relational tables
 
-A likely D1 schema will eventually contain:
+### `feeds`
+Human intent, exclusions, source policy, active state, and provider query.
 
-- `papers`
-- `paper_identifiers`
-- `feeds`
-- `paper_feed_memberships`
-- `decisions`
-- `feedback_events`
-- `learned_feed_profiles`
-- `ingestion_runs`
-- `paper_sources`
+### `papers`
+Canonical paper record rendered by the UI.
 
-The exact SQL schema should be introduced when backend persistence begins, not prematurely frozen during the UI prototype.
+### `paper_feeds`
+Many-to-many Feed membership. One paper can belong to several feeds without duplicate Inbox records.
+
+### `paper_identifiers`
+Normalized strong identity lookup. Its `(kind, value, provider)` key may point to only one canonical Paper.
+
+### `ingestion_provenance`
+Provider/feed origin and first/last seen evidence.
+
+### `decisions`
+Latest Save / Not Interested state.
+
+### `recommendation_snapshots`
+Versioned coarse recommendation output.
+
+### `feedback_events`
+Reserved for later implicit feedback instrumentation.
+
+## Planned additions
+
+Likely later tables include:
+
+- per-feed ingestion run/watermark state (#10)
+- field-level source provenance / provider conflict evidence (#9)
+- learned feed profiles (Milestone 6)
