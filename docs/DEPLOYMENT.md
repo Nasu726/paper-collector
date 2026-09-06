@@ -1,6 +1,6 @@
 # Cloudflare deployment, D1, and provider setup
 
-Authentication remains a deployment-layer concern rather than an application account system. Scholarly provider credentials also remain Worker-side and must never be exposed to React.
+Authentication remains a deployment-layer concern rather than an application account system. Scholarly provider credentials/configuration remain Worker-side and must never be exposed to React.
 
 ## 1. Local development
 
@@ -26,12 +26,13 @@ Useful checks:
 ```bash
 npm run build
 npm run test:openalex
+npm run test:crossref
 npm run db:smoke:local
 npm run api:smoke:local
 npm run api:smoke:ingestion
 ```
 
-A healthy local bootstrap returns feeds, papers, ingestion state, and decisions from D1.
+A healthy local bootstrap returns feeds, papers, ingestion state, and decisions from D1. Field evidence is available separately through `/api/papers/:paperId/evidence`.
 
 ## 2. Create the production D1 database
 
@@ -62,7 +63,8 @@ npm run db:migrate:remote
 
 D1 records applied migrations in its migration tracking table, so migrations should be additive and committed to `migrations/`.
 
-Migration `0003_scheduled_ingestion.sql` creates the per-Feed successful watermark and refresh-status state used by both manual and scheduled ingestion.
+- `0003_scheduled_ingestion.sql` creates per-Feed successful watermark/status state.
+- `0004_crossref_enrichment.sql` adds accepted-date metadata, field evidence/source selection, and Crossref cache/retry state.
 
 Do **not** run the development seed against production.
 
@@ -76,7 +78,7 @@ Store it as a Worker-side secret/configuration value named:
 OPENALEX_API_KEY
 ```
 
-For example, using Wrangler secret storage:
+For example:
 
 ```bash
 npx wrangler secret put OPENALEX_API_KEY
@@ -86,7 +88,40 @@ The key is read only by the Worker when it constructs the OpenAlex provider. It 
 
 Development CI deliberately uses recorded OpenAlex fixtures and a local provider server instead of a live key or live provider call.
 
-## 5. Scheduled ingestion
+## 5. Crossref configuration
+
+Crossref enrichment uses single-DOI REST lookups and does not require a secret API token for the normal public/polite pools.
+
+Set a contact email for Crossref identification:
+
+```text
+CROSSREF_MAILTO
+```
+
+For a deployment-specific configuration, provide it as a Worker environment value/secret according to the deployment policy. Do not expose it through Vite client variables.
+
+Optional overrides:
+
+```text
+CROSSREF_BASE_URL
+CROSSREF_MIN_INTERVAL_MS
+```
+
+`CROSSREF_BASE_URL` is primarily for tests/private proxies. `CROSSREF_MIN_INTERVAL_MS` exists mainly for deterministic tests; production should normally retain the conservative built-in sequential pacing.
+
+Successful and not-found DOI enrichment is cached for 30 days. Failed lookups become retryable after six hours.
+
+Manual enrichment can be triggered through:
+
+```text
+POST /api/enrichment/crossref?limit=8
+```
+
+The limit must be between 1 and 20.
+
+See [`CROSSREF_ENRICHMENT.md`](CROSSREF_ENRICHMENT.md) for conflict/source-selection semantics.
+
+## 6. Scheduled ingestion and enrichment
 
 `wrangler.jsonc` configures this Cron Trigger:
 
@@ -96,30 +131,33 @@ Development CI deliberately uses recorded OpenAlex fixtures and a local provider
 
 Cloudflare evaluates Cron schedules in UTC, so the Worker runs every six hours at minute 17.
 
-The scheduled handler refreshes every active Feed with a non-empty `provider_query`. A newly configured Feed scans an inclusive fourteen-day window. Later successful runs overlap one day before the previous successful watermark so late provider indexing can be observed safely.
+The scheduled handler first refreshes every active Feed with a non-empty `provider_query` through OpenAlex. A newly configured Feed scans an inclusive fourteen-day window. Later successful runs overlap one day before the previous successful watermark so late provider indexing can be observed safely.
 
 A watermark is advanced only after the complete provider window is fetched and persisted. Provider failures and the 500-record safety cap preserve the previous watermark.
 
+After collection, the Worker runs a bounded Crossref enrichment batch over pending DOI-bearing Papers. Crossref failure does not erase a successful OpenAlex watermark; the enrichment state itself records retry information.
+
 Cron Trigger changes are deployed from `wrangler.jsonc` together with the Worker. After deployment, verify the trigger in the Cloudflare dashboard under the Worker's Triggers/Cron configuration.
 
-For local testing, Cloudflare exposes the Worker's scheduled handler through `/cdn-cgi/local/scheduled`; `npm run api:smoke:ingestion` exercises that path with a fixture provider.
+For local testing, Cloudflare exposes the Worker's scheduled handler through `/cdn-cgi/local/scheduled`; `npm run api:smoke:ingestion` exercises OpenAlex ingestion and Crossref enrichment with fixture providers.
 
-See [`SCHEDULED_INGESTION.md`](SCHEDULED_INGESTION.md) for the complete state-machine semantics.
+See [`SCHEDULED_INGESTION.md`](SCHEDULED_INGESTION.md) for the refresh state-machine semantics.
 
-## 6. Validate and deploy
+## 7. Validate and deploy
 
 ```bash
 npm run build
 npm run test:openalex
+npm run test:crossref
 npm run api:smoke:ingestion
 npm run deploy
 ```
 
-The Cloudflare Vite plugin creates deployment output containing both React assets and Worker configuration. `wrangler deploy` deploys that output, including the configured Cron Trigger.
+The Cloudflare Vite plugin creates deployment output containing React assets and Worker configuration. `wrangler deploy` deploys that output, including the configured Cron Trigger.
 
 A newly deployed production database can legitimately have an empty Inbox until at least one Feed exists and ingestion has run.
 
-## 7. Manual ingestion check
+## 8. Manual ingestion check
 
 After a Feed with `provider_query` exists, the Worker can run its normal incremental refresh through:
 
@@ -149,7 +187,17 @@ The response reports provider records, accepted papers, provider pages, inserted
 
 The Feeds UI exposes the same normal refresh operation through **Refresh now** and shows the last successful watermark or failure/truncation state.
 
-## 8. Cloudflare Access for personal deployment
+## 9. Evidence inspection
+
+For an existing Paper, inspect normalized provider evidence and the currently selected source for each field through:
+
+```text
+GET /api/papers/<paper-id>/evidence
+```
+
+This is primarily a diagnostic/research endpoint. It makes provider disagreement visible without bloating the normal Inbox bootstrap payload.
+
+## 10. Cloudflare Access for personal deployment
 
 Before using personal preference data, protect the entire application hostname with one Cloudflare Access self-hosted application.
 
@@ -165,20 +213,22 @@ Recommended personal setup:
 
 The key invariant is that the visible SPA and same-origin API are protected together. Cron invocations execute inside the Worker runtime and do not depend on a browser Access session.
 
-## 9. Persistence behavior
+## 11. Persistence behavior
 
 When `/api/bootstrap` is reachable:
 
 - feeds come from D1
 - papers come from D1
-- feed membership comes from D1
+- Feed membership comes from D1
 - ingestion status/watermarks come from D1
 - recommendation snapshots come from D1
 - decisions come from D1 and are updated through the Worker API
 - a localStorage decision mirror is kept only as a resilience aid
 
-If the Worker/API cannot be reached at bootstrap, the development/demo fallback uses bundled synthetic papers plus localStorage decisions. This fallback is not the production source of truth and cannot perform Feed refresh.
+Provider field evidence, selected canonical sources, accepted-date metadata, and Crossref cache state are also persisted in D1 but are not part of the ordinary Inbox payload.
 
-## 10. Configuration invariant
+If the Worker/API cannot be reached at bootstrap, the development/demo fallback uses bundled synthetic papers plus localStorage decisions. This fallback is not the production source of truth and cannot perform Feed refresh/enrichment.
+
+## 12. Configuration invariant
 
 `wrangler.jsonc` deliberately contains a placeholder production D1 ID so repository builds do not depend on a specific account. Deployment is not complete until the database is created and that placeholder is replaced in the deployed configuration.
