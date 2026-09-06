@@ -1,0 +1,100 @@
+:root {
+  --pc-edge-gutter: 16px;
+  --pc-top-gutter: 18px;
+  --pc-bottom-gutter: 8px;
+  --pc-control-radius: 22px;
+  --pc-control-border: rgba(201, 198, 190, 0.82);
+  --pc-control-bg: rgba(250, 248, 243, 0.9);
+  --pc-control-shadow: 0 10px 28px rgba(33, 37, 34, 0.1);
+}
+
+body,
+.app-shell {
+  min-height: 100dvh;
+}
+
+.app-shell {
+  padding-top: max(var(--pc-top-gutter), env(safe-area-inset-top));
+  padding-left: max(18px, env(safe-area-inset-left));
+  padding-right: max(18px, env(safe-area-inset-right));
+}
+
+.paper-card,
+.compact-paper-card,
+.feed-card,
+.empty-state,
+.feed-manager-summary,
+.feed-editor,
+.archived-feeds {
+  border-radius: 24px;
+}
+
+.bottom-nav {
+  left: max(var(--pc-edge-gutter), env(safe-area-inset-left));
+  right: max(var(--pc-edge-gutter), env(safe-area-inset-right));
+  bottom: max(var(--pc-bottom-gutter), env(safe-area-inset-bottom));
+  width: auto;
+  max-width: 688px;
+  margin-inline: auto;
+  transform: none;
+  padding: 7px 8px;
+  border: 1px solid var(--pc-control-border);
+  border-radius: var(--pc-control-radius);
+  background: var(--pc-control-bg);
+  box-shadow: var(--pc-control-shadow);
+  backdrop-filter: blur(22px) saturate(1.08);
+  -webkit-backdrop-filter: blur(22px) saturate(1.08);
+}
+
+.bottom-nav button {
+  min-height: 48px;
+  border-radius: 16px;
+}
+
+.inbox-mode .decision-bar {
+  left: max(18px, env(safe-area-inset-left));
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(max(var(--pc-bottom-gutter), env(safe-area-inset-bottom)) + 74px);
+  width: auto;
+  max-width: 684px;
+  margin-inline: auto;
+  transform: none;
+  padding: 8px;
+  border: 1px solid var(--pc-control-border);
+  border-radius: 20px;
+  background: rgba(246, 244, 239, 0.92);
+  box-shadow: var(--pc-control-shadow);
+  backdrop-filter: blur(22px) saturate(1.08);
+  -webkit-backdrop-filter: blur(22px) saturate(1.08);
+}
+
+.app-shell.inbox-mode {
+  padding-bottom: calc(190px + max(var(--pc-bottom-gutter), env(safe-area-inset-bottom)));
+}
+
+@media (max-width: 500px) {
+  .app-header-inbox {
+    padding-top: 8px;
+  }
+
+  .paper-card {
+    box-shadow: 0 10px 26px rgba(35, 37, 35, 0.045);
+  }
+}
+
+@media (min-width: 700px) {
+  .app-shell {
+    padding-left: max(24px, env(safe-area-inset-left));
+    padding-right: max(24px, env(safe-area-inset-right));
+  }
+
+  .bottom-nav {
+    left: max(24px, env(safe-area-inset-left));
+    right: max(24px, env(safe-area-inset-right));
+  }
+
+  .inbox-mode .decision-bar {
+    left: max(24px, env(safe-area-inset-left));
+    right: max(24px, env(safe-area-inset-right));
+  }
+}

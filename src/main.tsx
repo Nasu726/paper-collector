@@ -4,6 +4,7 @@ import App from './App'
 import './styles.css'
 import './feedManager.css'
 import './inboxSpeed.css'
+import './iphonePolish.css'
 
 const root = document.getElementById('root')
 
