@@ -37,8 +37,16 @@ type ProvenanceRow = {
   last_seen_at: string
 }
 
+type BootstrapPaper = {
+  id?: unknown
+  feedIds?: unknown
+  [key: string]: unknown
+}
+
 type BootstrapPayload = {
   feeds?: Array<{ id?: unknown }>
+  papers?: BootstrapPaper[]
+  decisions?: Record<string, unknown>
   [key: string]: unknown
 }
 
@@ -168,10 +176,27 @@ async function filteredBootstrap(request: BaseFetchRequest, env: Env): Promise<R
   if (!Array.isArray(payload.feeds)) return json(payload, { status: response.status })
 
   const visible = await visibleFeedIds(env.DB)
+  const visibleFeeds = payload.feeds.filter((feed) => typeof feed.id === 'string' && visible.has(feed.id))
+  const decisions = payload.decisions ?? {}
+  const papers = Array.isArray(payload.papers)
+    ? payload.papers
+        .map((paper) => {
+          const visiblePaperFeedIds = Array.isArray(paper.feedIds)
+            ? paper.feedIds.filter((feedId): feedId is string => typeof feedId === 'string' && visible.has(feedId))
+            : []
+          return { ...paper, feedIds: visiblePaperFeedIds }
+        })
+        .filter((paper) => {
+          const decided = typeof paper.id === 'string' && Object.prototype.hasOwnProperty.call(decisions, paper.id)
+          return paper.feedIds.length > 0 || decided
+        })
+    : payload.papers
+
   return json(
     {
       ...payload,
-      feeds: payload.feeds.filter((feed) => typeof feed.id === 'string' && visible.has(feed.id)),
+      feeds: visibleFeeds,
+      papers,
     },
     { status: response.status },
   )

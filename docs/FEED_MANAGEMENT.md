@@ -79,6 +79,22 @@ GET /api/papers/:paperId/provenance
 
 This diagnostic endpoint exposes every persisted Feed/provider origin for a canonical Paper. It is intentionally independent from the currently visible Feed list so historical provenance remains inspectable after a Feed is archived.
 
+## Normal bootstrap visibility after archive
+
+Persistent history and the normal Inbox payload are deliberately different views.
+
+D1 continues to retain historical `paper_feeds` memberships and ingestion provenance after archive. Normal `/api/bootstrap`, however, only exposes non-archived Feed IDs in each Paper's `feedIds`.
+
+For Papers:
+
+- an **undecided** Paper with at least one non-archived Feed remains in normal bootstrap
+- an **undecided** Paper whose only memberships are archived is omitted from normal bootstrap
+- a **Saved or Rejected** Paper remains in normal bootstrap even if every source Feed is archived, so reading/decision history is not lost
+- a Paused Feed is not archived, so its Paper memberships remain visible
+- restoring a Feed reveals its persisted historical Paper memberships again without provider re-fetch
+
+This filtering is presentation/application state only. It must never delete `paper_feeds`, provenance, or decisions from D1.
+
 ## Collection checkpoint reset policy
 
 Changing presentation or human-owned research description must not cause collection history to restart.
@@ -112,7 +128,7 @@ When two Feeds discover the same normalized DOI:
 - `ingestion_provenance` retains each Feed/provider/query origin independently
 - a decision belongs to the canonical Paper and survives later Feed lifecycle changes
 
-Archiving one Feed therefore does **not** remove that Feed ID from historical Paper membership, provenance, or saved/rejected decisions. It only removes the Feed from normal management and scheduled collection.
+Archiving one Feed therefore does **not** delete that Feed ID from historical D1 membership, provenance, or saved/rejected decisions. Normal bootstrap may suppress archived Feed IDs and archived-only undecided Papers as described above.
 
 Editing one Feed must never mutate another Feed's explicit intent, query, exclusions, policy, active state, or checkpoint.
 
