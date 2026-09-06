@@ -21,7 +21,9 @@ type Paper = {
 }
 ```
 
-`id` is an internal canonical identifier. A newly ingested paper prefers a normalized DOI-based ID when a DOI exists; otherwise the first provider identity is used. The canonical ID must remain stable once other identifiers are attached.
+`id` is an internal canonical identifier. A newly ingested Paper prefers a normalized DOI-based ID when a DOI exists; otherwise the first provider identity is used. The canonical ID remains stable when later enrichment adds metadata.
+
+The D1 `papers` row also has `accepted_at`. It is currently provenance/canonical database metadata rather than part of the normal Inbox payload; accepted-date evidence is inspectable through the evidence API.
 
 ## PublicationStatus
 
@@ -34,6 +36,12 @@ type PublicationStatus =
 ```
 
 `accepted` and `published` are evidence-bearing states, not synonyms for `peer reviewed`. A provider adapter must only emit them when its metadata supports the distinction.
+
+Canonical status selection is monotonic under the current field policy:
+
+```text
+unknown < preprint < accepted < published
+```
 
 ## PaperIdentifier
 
@@ -51,6 +59,8 @@ Normalization rules currently include:
 - OpenAlex work: uppercase `W...` value stored as `kind: 'provider', provider: 'openalex'`
 
 The domain copy of identifiers is stored in `papers.identifiers_json` for bootstrap simplicity. The `paper_identifiers` table stores the same strong identities in normalized relational form for lookup and uniqueness checks.
+
+Crossref enrichment only targets an already existing DOI identifier; it does not create another Paper row.
 
 ## Feed
 
@@ -70,7 +80,7 @@ type Feed = {
 }
 ```
 
-`intent` is explicit human-facing research intent. `providerQuery` is the concrete query sent to the scholarly provider. They are deliberately separate so provider syntax, ranking models, and learned preference state cannot silently rewrite the user's intent.
+`intent` is explicit human-facing research intent. `providerQuery` is the concrete query sent to the scholarly collection provider. They are deliberately separate so provider syntax, ranking models, and learned preference state cannot silently rewrite the user's intent.
 
 ## FeedIngestionState
 
@@ -90,6 +100,39 @@ type FeedIngestionState = {
 
 The stored `lastAttemptAt` also orders overlapping refresh results: an older run may finish after a newer run, but must not overwrite the newer run's visible state.
 
+## Field evidence
+
+Provider evidence and canonical selection are distinct records.
+
+A normalized evidence item conceptually contains:
+
+```ts
+type FieldEvidence = {
+  paperId: string
+  fieldName: CanonicalFieldName
+  provider: string
+  providerRecordId: string
+  sourceField: string
+  value: unknown
+}
+```
+
+Current canonical field names include:
+
+- `title`
+- `abstract`
+- `authors`
+- `published_at`
+- `accepted_at`
+- `venue`
+- `publication_status`
+- `source_url`
+- `pdf_url`
+
+`paper_field_evidence` can contain multiple competing values for one field. `paper_field_sources` selects at most one current source for a canonical field and records the policy version that made the selection.
+
+This distinction allows a later policy revision to re-evaluate evidence without losing the original provider statements.
+
 ## Decision
 
 ```ts
@@ -107,7 +150,7 @@ A decision is reversible. The current table stores the latest explicit state; la
 
 ## Ingestion provenance
 
-Every provider-created paper/feed association records:
+Every collection-provider-created paper/feed association records:
 
 - canonical `paper_id`
 - `feed_id`
@@ -118,7 +161,7 @@ Every provider-created paper/feed association records:
 - first-seen timestamp
 - last-seen timestamp
 
-This provenance answers "why is this paper in this Feed?" independently of recommendation.
+This answers “why is this Paper in this Feed?” and is separate from field provenance, which answers “which provider said this metadata value?”
 
 ## FeedbackEvent
 
@@ -179,19 +222,28 @@ This remains separate from both `Feed.intent` and `Feed.providerQuery`.
 Human intent, exclusions, source policy, active state, and provider query.
 
 ### `papers`
-Canonical paper record rendered by the UI.
+Canonical Paper record rendered by the UI, plus accepted-date metadata used by enrichment/provenance.
 
 ### `paper_feeds`
-Many-to-many Feed membership. One paper can belong to several feeds without duplicate Inbox records. Membership insertion is idempotent so overlapping refreshes can safely rediscover the same paper/feed pair.
+Many-to-many Feed membership. One Paper can belong to several Feeds without duplicate Inbox records. Membership insertion is idempotent so overlapping refreshes can safely rediscover the same pair.
 
 ### `paper_identifiers`
 Normalized strong identity lookup. Its `(kind, value, provider)` key may point to only one canonical Paper.
 
 ### `ingestion_provenance`
-Provider/feed origin and first/last seen evidence.
+Collection-provider/feed origin and first/last-seen evidence.
 
 ### `feed_ingestion_state`
 Per-Feed provider status, successful watermark, latest attempt/success timestamps, diagnostics, and provider page/record counts.
+
+### `paper_field_evidence`
+All normalized metadata evidence by Paper, field, provider record, and provider source field.
+
+### `paper_field_sources`
+Current selected canonical source per Paper/field, including `policy_version`.
+
+### `crossref_enrichment_state`
+Per-Paper DOI lookup cache/retry state (`success`, `not_found`, or `error`).
 
 ### `decisions`
 Latest Save / Not Interested state.
@@ -204,7 +256,6 @@ Reserved for later implicit feedback instrumentation.
 
 ## Planned additions
 
-Likely later tables include:
+Likely later tables include learned feed profiles for Milestone 6. Feed CRUD in Milestone 4 is expected to extend existing Feed records rather than introduce recommendation state into the explicit Feed definition.
 
-- field-level source provenance / provider conflict evidence (#9)
-- learned feed profiles (Milestone 6)
+See [`CROSSREF_ENRICHMENT.md`](CROSSREF_ENRICHMENT.md) for the current canonical-source policy.
