@@ -1,9 +1,14 @@
 import { spawn } from 'node:child_process'
+import { resolve } from 'node:path'
 
 const baseUrl = 'http://127.0.0.1:5173'
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const viteCommand = resolve(
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'vite.cmd' : 'vite',
+)
 
-const server = spawn(npmCommand, ['run', 'dev', '--', '--host', '127.0.0.1'], {
+const server = spawn(viteCommand, ['--host', '127.0.0.1'], {
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 
@@ -28,7 +33,7 @@ async function waitForServer() {
     } catch {
       // The server may not be listening yet.
     }
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
   }
   throw new Error(`Timed out waiting for dev server.\n${output}`)
 }
@@ -81,12 +86,20 @@ async function run() {
   console.log(`Worker smoke test passed: ${initial.feeds.length} feeds, ${initial.papers.length} papers, decision round-trip OK.`)
 }
 
+let exitCode = 0
 try {
   await run()
 } catch (error) {
+  exitCode = 1
   console.error(error)
   console.error(output)
-  process.exitCode = 1
 } finally {
   server.kill('SIGTERM')
+  await Promise.race([
+    new Promise((resolveExit) => server.once('exit', resolveExit)),
+    new Promise((resolveDelay) => setTimeout(resolveDelay, 1000)),
+  ])
+  if (server.exitCode === null) server.kill('SIGKILL')
 }
+
+process.exit(exitCode)
