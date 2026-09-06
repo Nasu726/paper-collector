@@ -29,6 +29,9 @@ jobs:
       - name: Test OpenAlex provider fixture
         run: npm run test:openalex
 
+      - name: Test Crossref provider fixture
+        run: npm run test:crossref
+
       - name: Initialize local D1
         run: npm run db:setup:local
 

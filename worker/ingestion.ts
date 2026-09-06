@@ -1,4 +1,11 @@
 import type { Feed, PaperIdentifier } from '../src/domain'
+import {
+  FIELD_POLICY_VERSION,
+  recordFieldEvidence,
+  selectFieldSource,
+  selectFieldSourceIfMissing,
+  type CanonicalFieldName,
+} from './fieldEvidence'
 import type { ProviderPaper } from './providers/types'
 
 type ExistingPaperRow = {
@@ -107,6 +114,46 @@ async function registerIdentifiers(db: D1Database, paperId: string, identifiers:
   }
 }
 
+async function recordProviderEvidence(db: D1Database, paperId: string, paper: ProviderPaper): Promise<void> {
+  const evidence: Array<{ fieldName: CanonicalFieldName; sourceField: string; value: unknown }> = [
+    { fieldName: 'title', sourceField: 'title', value: paper.title },
+    { fieldName: 'abstract', sourceField: 'abstract_inverted_index', value: paper.abstract },
+    { fieldName: 'authors', sourceField: 'authorships', value: paper.authors },
+    { fieldName: 'publication_status', sourceField: 'locations/type', value: paper.publicationStatus },
+    { fieldName: 'source_url', sourceField: 'primary_location', value: paper.sourceUrl },
+  ]
+  if (paper.publishedAt) evidence.push({ fieldName: 'published_at', sourceField: 'publication_date', value: paper.publishedAt })
+  if (paper.venue) evidence.push({ fieldName: 'venue', sourceField: 'primary_location.source', value: paper.venue })
+  if (paper.pdfUrl) evidence.push({ fieldName: 'pdf_url', sourceField: 'best_oa_location/primary_location', value: paper.pdfUrl })
+
+  for (const item of evidence) {
+    await recordFieldEvidence(db, {
+      paperId,
+      fieldName: item.fieldName,
+      provider: paper.provider,
+      providerRecordId: paper.providerRecordId,
+      sourceField: item.sourceField,
+      value: item.value,
+    })
+  }
+
+  for (const item of evidence) {
+    const source = {
+      paperId,
+      fieldName: item.fieldName,
+      provider: paper.provider,
+      providerRecordId: paper.providerRecordId,
+      sourceField: item.sourceField,
+      policyVersion: FIELD_POLICY_VERSION,
+    }
+    if (item.fieldName === 'published_at' || item.fieldName === 'venue' || item.fieldName === 'publication_status') {
+      await selectFieldSourceIfMissing(db, source)
+    } else {
+      await selectFieldSource(db, source)
+    }
+  }
+}
+
 export async function persistProviderPapers(
   db: D1Database,
   feed: Feed,
@@ -132,9 +179,27 @@ export async function persistProviderPapers(
            title = excluded.title,
            abstract = excluded.abstract,
            authors_json = excluded.authors_json,
-           published_at = excluded.published_at,
-           venue = excluded.venue,
-           publication_status = excluded.publication_status,
+           published_at = CASE
+             WHEN EXISTS (
+               SELECT 1 FROM paper_field_sources s
+               WHERE s.paper_id = excluded.id AND s.field_name = 'published_at' AND s.provider = 'crossref'
+             ) THEN papers.published_at
+             ELSE excluded.published_at
+           END,
+           venue = CASE
+             WHEN EXISTS (
+               SELECT 1 FROM paper_field_sources s
+               WHERE s.paper_id = excluded.id AND s.field_name = 'venue' AND s.provider = 'crossref'
+             ) THEN papers.venue
+             ELSE excluded.venue
+           END,
+           publication_status = CASE
+             WHEN EXISTS (
+               SELECT 1 FROM paper_field_sources s
+               WHERE s.paper_id = excluded.id AND s.field_name = 'publication_status' AND s.provider = 'crossref'
+             ) THEN papers.publication_status
+             ELSE excluded.publication_status
+           END,
            source_url = excluded.source_url,
            pdf_url = excluded.pdf_url,
            identifiers_json = excluded.identifiers_json,
@@ -158,6 +223,7 @@ export async function persistProviderPapers(
     else inserted += 1
 
     await registerIdentifiers(db, paperId, identifiers)
+    await recordProviderEvidence(db, paperId, paper)
 
     const membershipResult = await db
       .prepare('INSERT OR IGNORE INTO paper_feeds (paper_id, feed_id) VALUES (?, ?)')

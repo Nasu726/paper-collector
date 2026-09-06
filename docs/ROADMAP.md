@@ -83,11 +83,14 @@ Goal: turn the UI prototype into a paper collector.
 
 ### Milestone 3b — Identity and Crossref enrichment (#9)
 
-- [ ] Crossref DOI enrichment adapter
-- [ ] accepted/publication date evidence when publisher metadata provides it
-- [ ] field provenance / source-conflict policy
-- [ ] multi-provider identity regression fixtures
-- [ ] stronger duplicate handling for updated/cross-listed records
+- [x] Crossref DOI enrichment adapter
+- [x] accepted/publication date evidence when publisher metadata provides it
+- [x] field provenance and explicit canonical source selection
+- [x] deterministic source-conflict policy
+- [x] multi-provider disagreement regression fixture
+- [x] Crossref cache/retry state and conservative request pacing
+- [x] later OpenAlex refreshes cannot overwrite selected Crossref publication metadata
+- [x] evidence inspection API
 
 ### Milestone 3c — Scheduled collection and refresh UX (#10)
 
@@ -102,7 +105,7 @@ Goal: turn the UI prototype into a paper collector.
 - [x] 14-day initial lookback policy for new feeds
 - [x] fixture-backed CI coverage for scheduled execution and failure-preserving watermarks
 
-Exit criterion: a configured feed receives new real papers without manual database entry and continues to refresh safely over time.
+Exit criterion: a configured feed receives new real papers without manual database entry, enriches DOI metadata without losing provider disagreement, and continues to refresh safely over time.
 
 ## Milestone 4 — Feed management
 
