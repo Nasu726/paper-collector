@@ -66,10 +66,29 @@ type Feed = {
     | 'include_preprints'
   active: boolean
   providerQuery?: string
+  ingestion?: FeedIngestionState
 }
 ```
 
 `intent` is explicit human-facing research intent. `providerQuery` is the concrete query sent to the scholarly provider. They are deliberately separate so provider syntax, ranking models, and learned preference state cannot silently rewrite the user's intent.
+
+## FeedIngestionState
+
+```ts
+type FeedIngestionState = {
+  status: 'never' | 'success' | 'error' | 'truncated'
+  watermarkDate?: string
+  lastAttemptAt?: string
+  lastSuccessAt?: string
+  lastError?: string
+  lastFetched: number
+  lastPages: number
+}
+```
+
+`watermarkDate` is the most recent fully completed incremental publication-date checkpoint. It is monotonic and is not advanced by explicit backfills, failed provider requests, persistence failures, or truncated provider scans.
+
+The stored `lastAttemptAt` also orders overlapping refresh results: an older run may finish after a newer run, but must not overwrite the newer run's visible state.
 
 ## Decision
 
@@ -163,13 +182,16 @@ Human intent, exclusions, source policy, active state, and provider query.
 Canonical paper record rendered by the UI.
 
 ### `paper_feeds`
-Many-to-many Feed membership. One paper can belong to several feeds without duplicate Inbox records.
+Many-to-many Feed membership. One paper can belong to several feeds without duplicate Inbox records. Membership insertion is idempotent so overlapping refreshes can safely rediscover the same paper/feed pair.
 
 ### `paper_identifiers`
 Normalized strong identity lookup. Its `(kind, value, provider)` key may point to only one canonical Paper.
 
 ### `ingestion_provenance`
 Provider/feed origin and first/last seen evidence.
+
+### `feed_ingestion_state`
+Per-Feed provider status, successful watermark, latest attempt/success timestamps, diagnostics, and provider page/record counts.
 
 ### `decisions`
 Latest Save / Not Interested state.
@@ -184,6 +206,5 @@ Reserved for later implicit feedback instrumentation.
 
 Likely later tables include:
 
-- per-feed ingestion run/watermark state (#10)
 - field-level source provenance / provider conflict evidence (#9)
 - learned feed profiles (Milestone 6)

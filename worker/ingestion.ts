@@ -159,17 +159,11 @@ export async function persistProviderPapers(
 
     await registerIdentifiers(db, paperId, identifiers)
 
-    const membership = await db
-      .prepare('SELECT 1 AS present FROM paper_feeds WHERE paper_id = ? AND feed_id = ?')
+    const membershipResult = await db
+      .prepare('INSERT OR IGNORE INTO paper_feeds (paper_id, feed_id) VALUES (?, ?)')
       .bind(paperId, feed.id)
-      .first<{ present: number }>()
-    if (!membership) {
-      await db
-        .prepare('INSERT INTO paper_feeds (paper_id, feed_id) VALUES (?, ?)')
-        .bind(paperId, feed.id)
-        .run()
-      attached += 1
-    }
+      .run()
+    if (membershipResult.meta.changes > 0) attached += 1
 
     await db
       .prepare(

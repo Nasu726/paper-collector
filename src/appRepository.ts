@@ -11,6 +11,21 @@ export type AppBootstrap = {
   mode: PersistenceMode
 }
 
+export type FeedRefreshResponse = {
+  feedId: string
+  provider: string
+  fromDate: string
+  toDate: string
+  status: 'success' | 'truncated'
+  watermarkAdvanced: boolean
+  rawFetched: number
+  accepted: number
+  pages: number
+  inserted: number
+  updated: number
+  attached: number
+}
+
 type BootstrapResponse = {
   feeds: Feed[]
   papers: Paper[]
@@ -28,6 +43,16 @@ function isBootstrapResponse(value: unknown): value is BootstrapResponse {
   )
 }
 
+async function responseError(response: Response, fallback: string): Promise<Error> {
+  try {
+    const payload = (await response.json()) as { error?: unknown }
+    if (typeof payload.error === 'string' && payload.error) return new Error(payload.error)
+  } catch {
+    // Fall back to the status-based message below.
+  }
+  return new Error(`${fallback} (${response.status})`)
+}
+
 class ApiAppRepository {
   async load(): Promise<BootstrapResponse> {
     const response = await fetch('/api/bootstrap', {
@@ -39,6 +64,15 @@ class ApiAppRepository {
     const payload = (await response.json()) as unknown
     if (!isBootstrapResponse(payload)) throw new Error('Bootstrap response is invalid')
     return payload
+  }
+
+  async refreshFeed(feedId: string): Promise<FeedRefreshResponse> {
+    const response = await fetch(`/api/feeds/${encodeURIComponent(feedId)}/refresh`, {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw await responseError(response, 'Feed refresh failed')
+    return (await response.json()) as FeedRefreshResponse
   }
 
   async upsertDecision(decision: Decision): Promise<void> {
@@ -101,6 +135,18 @@ class ResilientAppRepository {
     } catch {
       this.mode = 'local'
       return { ...this.local.load(), mode: this.mode }
+    }
+  }
+
+  async refreshFeed(feedId: string): Promise<{ refresh: FeedRefreshResponse; bootstrap: AppBootstrap }> {
+    if (this.mode !== 'cloud') throw new Error('Feed refresh requires the cloud Worker API.')
+
+    const refresh = await this.api.refreshFeed(feedId)
+    const bootstrap = await this.api.load()
+    saveDecisions(bootstrap.decisions)
+    return {
+      refresh,
+      bootstrap: { ...bootstrap, mode: 'cloud' },
     }
   }
 

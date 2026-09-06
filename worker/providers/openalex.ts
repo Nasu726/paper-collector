@@ -1,5 +1,5 @@
 import type { Feed, PaperIdentifier, PublicationStatus } from '../../src/domain'
-import type { PaperProvider, ProviderPaper, ProviderSearchRequest } from './types'
+import type { PaperProvider, ProviderPaper, ProviderSearchRequest, ProviderSearchResult } from './types'
 
 type OpenAlexLocation = {
   landing_page_url?: string | null
@@ -30,6 +30,9 @@ type OpenAlexWork = {
 }
 
 type OpenAlexResponse = {
+  meta?: {
+    next_cursor?: string | null
+  }
   results?: OpenAlexWork[]
 }
 
@@ -39,6 +42,9 @@ export type OpenAlexProviderOptions = {
   timeoutMs?: number
   fetchImpl?: typeof fetch
 }
+
+const MAX_RESULTS_PER_REFRESH = 500
+const PAGE_SIZE = 100
 
 function normalizeDate(value: string | null | undefined): string | undefined {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined
@@ -152,19 +158,7 @@ export class OpenAlexProvider implements PaperProvider {
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init))
   }
 
-  async search(request: ProviderSearchRequest): Promise<ProviderPaper[]> {
-    const url = new URL(`${this.baseUrl}/works`)
-    url.searchParams.set('search', request.query)
-
-    const workTypes = request.sourcePolicy === 'include_preprints' ? 'article|preprint' : 'article'
-    url.searchParams.set(
-      'filter',
-      `from_publication_date:${request.fromDate},to_publication_date:${request.toDate},has_abstract:true,type:${workTypes}`,
-    )
-    url.searchParams.set('sort', '-publication_date')
-    url.searchParams.set('per_page', String(Math.min(Math.max(request.limit ?? 50, 1), 100)))
-    if (this.apiKey) url.searchParams.set('api_key', this.apiKey)
-
+  private async fetchPage(url: URL): Promise<OpenAlexResponse> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
     let response: Response
@@ -172,7 +166,7 @@ export class OpenAlexProvider implements PaperProvider {
       response = await this.fetchImpl(url, {
         headers: {
           accept: 'application/json',
-          'user-agent': 'paper-collector/0.3 (+https://github.com/Nasu726/paper-collector)',
+          'user-agent': 'paper-collector/0.4 (+https://github.com/Nasu726/paper-collector)',
         },
         signal: controller.signal,
       })
@@ -181,12 +175,62 @@ export class OpenAlexProvider implements PaperProvider {
     }
 
     if (!response.ok) throw new Error(`OpenAlex request failed with ${response.status}`)
+    return (await response.json()) as OpenAlexResponse
+  }
 
-    const payload = (await response.json()) as OpenAlexResponse
-    const normalized = (payload.results ?? [])
-      .map(normalizeOpenAlexWork)
-      .filter((paper): paper is ProviderPaper => paper !== null)
+  async search(request: ProviderSearchRequest): Promise<ProviderSearchResult> {
+    const maxResults = Math.min(Math.max(request.maxResults ?? MAX_RESULTS_PER_REFRESH, 1), MAX_RESULTS_PER_REFRESH)
+    const baseUrl = new URL(`${this.baseUrl}/works`)
+    baseUrl.searchParams.set('search', request.query)
 
-    return normalized.filter((paper) => allowedByPolicy(paper.publicationStatus, request.sourcePolicy))
+    const workTypes = request.sourcePolicy === 'include_preprints' ? 'article|preprint' : 'article'
+    baseUrl.searchParams.set(
+      'filter',
+      `from_publication_date:${request.fromDate},to_publication_date:${request.toDate},has_abstract:true,type:${workTypes}`,
+    )
+    baseUrl.searchParams.set('sort', '-publication_date')
+    if (this.apiKey) baseUrl.searchParams.set('api_key', this.apiKey)
+
+    const papersById = new Map<string, ProviderPaper>()
+    let cursor = '*'
+    let rawFetched = 0
+    let pages = 0
+    let truncated = false
+
+    while (rawFetched < maxResults) {
+      const remaining = maxResults - rawFetched
+      const pageUrl = new URL(baseUrl)
+      pageUrl.searchParams.set('per_page', String(Math.min(PAGE_SIZE, remaining)))
+      pageUrl.searchParams.set('cursor', cursor)
+
+      const payload = await this.fetchPage(pageUrl)
+      const rawResults = payload.results ?? []
+      pages += 1
+      rawFetched += rawResults.length
+
+      for (const work of rawResults) {
+        const paper = normalizeOpenAlexWork(work)
+        if (paper && allowedByPolicy(paper.publicationStatus, request.sourcePolicy)) {
+          papersById.set(paper.providerRecordId, paper)
+        }
+      }
+
+      const nextCursor = payload.meta?.next_cursor ?? null
+      if (rawResults.length === 0 || !nextCursor) break
+      if (nextCursor === cursor) throw new Error('OpenAlex cursor did not advance')
+
+      if (rawFetched >= maxResults) {
+        truncated = true
+        break
+      }
+      cursor = nextCursor
+    }
+
+    return {
+      papers: [...papersById.values()],
+      pages,
+      rawFetched,
+      truncated,
+    }
   }
 }

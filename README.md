@@ -6,7 +6,7 @@ The core idea is intentionally simple: collect papers into an Inbox, inspect the
 
 ## Status
 
-Early development. The mobile triage flow and Cloudflare Worker + D1 persistence are complete. Milestone 3 is now connecting real scholarly ingestion, starting with OpenAlex.
+Early development. The mobile triage flow, Cloudflare Worker + D1 persistence, OpenAlex ingestion, and scheduled incremental refresh path are implemented. Crossref enrichment and Feed editing remain upcoming work.
 
 ## Product principles
 
@@ -29,6 +29,7 @@ Early development. The mobile triage flow and Cloudflare Worker + D1 persistence
 - Cloudflare Vite plugin
 - Cloudflare Workers
 - Cloudflare D1
+- Cloudflare Cron Triggers
 - OpenAlex for initial real-paper ingestion
 - Cloudflare Access for personal deployment
 
@@ -42,7 +43,7 @@ npm run db:setup:local
 npm run dev
 ```
 
-The frontend loads feeds, papers, recommendation snapshots, and decisions from the same-origin Worker API. If the API is unavailable at bootstrap, development falls back to bundled synthetic papers plus localStorage decisions.
+The frontend loads feeds, papers, recommendation snapshots, ingestion state, and decisions from the same-origin Worker API. If the API is unavailable at bootstrap, development falls back to bundled synthetic papers plus localStorage decisions.
 
 Useful validation:
 
@@ -51,6 +52,7 @@ npm run build
 npm run test:openalex
 npm run db:smoke:local
 npm run api:smoke:local
+npm run api:smoke:ingestion
 ```
 
 ## Real ingestion
@@ -63,11 +65,17 @@ The Worker endpoint:
 POST /api/feeds/:feedId/refresh
 ```
 
-queries OpenAlex for recent works, normalizes metadata, resolves strong DOI/OpenAlex identities, upserts canonical papers into D1, and attaches them to the Feed. The default window is the latest fourteen days; an explicit JSON body may provide `fromDate` and `toDate` as `YYYY-MM-DD`.
+queries OpenAlex, follows cursor pagination, normalizes metadata, resolves strong DOI/OpenAlex identities, upserts canonical papers into D1, and attaches them to the Feed.
+
+Normal manual refreshes and the scheduled Worker share the same incremental watermark logic. New Feeds start with a fourteen-day lookback; successful later runs overlap one day before the previous watermark. A provider failure or a 500-record truncation never advances the successful watermark.
+
+Supplying explicit JSON `fromDate` and/or `toDate` values (`YYYY-MM-DD`) makes the request a backfill/diagnostic range. Papers are persisted, but the incremental watermark is not advanced.
+
+`wrangler.jsonc` schedules active Feeds every six hours. See [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md) for the state-machine and failure semantics.
 
 An OpenAlex API key is optional for casual development use. For real deployment, configure the free key as Worker-side configuration/secret rather than exposing it to the frontend.
 
-The initial provider tests use recorded fixtures and never require live OpenAlex network access in CI.
+CI uses recorded fixtures and a local mock OpenAlex server; tests do not require live OpenAlex availability.
 
 ## Deployment
 
@@ -78,6 +86,7 @@ Production deployment requires creating a real D1 database and replacing the pla
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior and invariants
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current architecture and ingestion boundaries
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — logical domain model
+- [`docs/SCHEDULED_INGESTION.md`](docs/SCHEDULED_INGESTION.md) — incremental refresh and Cron semantics
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestone plan
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Cloudflare/D1 setup and deployment
 - [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — development rules

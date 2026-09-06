@@ -91,12 +91,16 @@ Goal: turn the UI prototype into a paper collector.
 
 ### Milestone 3c — Scheduled collection and refresh UX (#10)
 
-- [ ] per-feed successful ingestion watermark
-- [ ] incremental retry-safe refresh windows
-- [ ] Cloudflare scheduled Worker / Cron Trigger
-- [ ] manual refresh action in the Feed UI
-- [ ] last-success / last-error state
-- [ ] initial lookback policy for new feeds
+- [x] per-feed successful ingestion watermark
+- [x] incremental retry-safe refresh windows with a one-day overlap
+- [x] OpenAlex cursor pagination
+- [x] explicit 500-record truncation cap that does not advance the watermark
+- [x] monotonic checkpoint behavior for overlapping runs
+- [x] Cloudflare scheduled Worker / Cron Trigger
+- [x] manual refresh action in the Feed UI
+- [x] last-success / last-error state
+- [x] 14-day initial lookback policy for new feeds
+- [x] fixture-backed CI coverage for scheduled execution and failure-preserving watermarks
 
 Exit criterion: a configured feed receives new real papers without manual database entry and continues to refresh safely over time.
 

@@ -16,6 +16,7 @@ The architecture is optimized for a personal, mobile-first Paper Inbox. The UI s
 - Cloudflare Vite plugin
 - Cloudflare Worker API
 - Cloudflare D1
+- Cloudflare Cron Trigger for scheduled ingestion
 - localStorage only as a development/offline fallback for decision state
 
 ### Ingestion
@@ -24,22 +25,21 @@ The architecture is optimized for a personal, mobile-first Paper Inbox. The UI s
 - Crossref planned for DOI/publisher metadata enrichment
 - arXiv planned as an optional preprint source rather than the default published-paper source
 
-### Planned platform additions
-- Cron Triggers / scheduled Workers for ingestion
-- Cloudflare Access for personal authentication at deployment
+### Deployment security
+- Cloudflare Access for personal authentication
 
 ## 3. Runtime topology
 
 ```text
-Browser / PWA
-    |
-    | same-origin /api/*
-    v
-Cloudflare Worker
-    |            \
-    |             \ provider adapter
-    v              v
-Cloudflare D1    OpenAlex / later Crossref, arXiv
+Browser / PWA                  Cloudflare Cron Trigger
+    |                                  |
+    | same-origin /api/*               | scheduled()
+    v                                  v
+                 Cloudflare Worker
+                    |            \
+                    |             \ provider adapter
+                    v              v
+              Cloudflare D1      OpenAlex
 ```
 
 Static SPA assets are served by the same Worker deployment.
@@ -56,7 +56,7 @@ App repository
   └─ local development fallback
 ```
 
-The cloud bootstrap returns feeds, papers, recommendation snapshots, and decisions together. In deployed mode D1 is the source of truth. Bundled synthetic data exists only so frontend work remains possible when the Worker API is unavailable.
+The cloud bootstrap returns feeds, papers, recommendation snapshots, ingestion state, and decisions together. In deployed mode D1 is the source of truth. Bundled synthetic data exists only so frontend work remains possible when the Worker API is unavailable.
 
 ## 5. Feed intent and collection query are separate
 
@@ -69,18 +69,20 @@ They must not be conflated. Provider syntax may change, and future learned prefe
 
 Milestone 4 will expose editing for these fields. Milestone 3 uses deterministic development queries to prove the ingestion path.
 
-## 6. Worker API
+## 6. Worker API and scheduled handler
 
 Current endpoints:
 
 - `GET /api/health` — verifies Worker/D1 reachability
-- `GET /api/bootstrap` — returns feeds, papers, recommendation snapshots, and decisions
-- `POST /api/feeds/:feedId/refresh` — fetches a recent OpenAlex window and upserts normalized papers
+- `GET /api/bootstrap` — returns feeds, papers, recommendation snapshots, ingestion state, and decisions
+- `POST /api/feeds/:feedId/refresh` — runs one Feed refresh
 - `PUT /api/decisions/:paperId` — creates or replaces one explicit decision
 - `DELETE /api/decisions/:paperId` — returns a paper to Inbox
 - `DELETE /api/decisions` — resets decisions for development/demo use
 
-The refresh endpoint defaults to a fourteen-day inclusive publication window and accepts explicit ISO `fromDate` / `toDate` bounds. Persistent incremental watermarks belong to Milestone 3c (#10).
+The same refresh state machine is used by the HTTP endpoint and the Worker's `scheduled()` handler.
+
+A normal refresh is incremental. A request that explicitly supplies `fromDate` or `toDate` is treated as a backfill/diagnostic range and does not advance the incremental watermark.
 
 ## 7. D1 schema
 
@@ -91,6 +93,7 @@ The schema currently contains:
 - `paper_feeds`
 - `paper_identifiers`
 - `ingestion_provenance`
+- `feed_ingestion_state`
 - `decisions`
 - `recommendation_snapshots`
 - `feedback_events`
@@ -99,35 +102,29 @@ The schema currently contains:
 
 `ingestion_provenance` records which provider record caused a paper/feed association, the provider query, provider update timestamp when available, and first/last seen timestamps.
 
-## 8. Ingestion boundary
+`feed_ingestion_state` stores the last attempt, last successful refresh, successful date watermark, status, provider-page count, fetched-record count, and error/truncation diagnostic.
 
-```text
-Feed.providerQuery + source policy
-             ↓
-      PaperProvider interface
-             ↓
-          OpenAlex
-             ↓
- normalization to ProviderPaper
-             ↓
- canonical identity lookup
-             ↓
-        D1 paper upsert
-             ↓
- feed membership + provenance
-             ↓
-       existing bootstrap
-             ↓
-            Inbox
-```
+## 8. Incremental ingestion state machine
 
-Provider response types do not cross into React or the domain-facing persistence layer.
+For a newly configured Feed, the first normal refresh scans a fourteen-day inclusive publication window.
 
-## 9. OpenAlex normalization
+After a successful refresh, `watermark_date` is advanced to the completed `toDate`. Future normal refreshes begin one day before that watermark so late provider indexing can still be observed. Canonical D1 upserts make this overlap safe.
 
-The OpenAlex adapter currently:
+The watermark advances only when the provider scan completes without truncation and persistence completes successfully.
+
+Provider or persistence failure records `status=error` while preserving the previous watermark. Hitting the 500-record safety cap records `status=truncated`, persists the records already received, and also preserves the previous watermark.
+
+Checkpoint updates are ordered by attempt timestamp, and the watermark itself is monotonic. An older overlapping run therefore cannot move a newer checkpoint backwards.
+
+## 9. OpenAlex pagination and normalization
+
+The OpenAlex adapter:
 
 - searches newest-first within a publication-date window
+- starts cursor pagination with `cursor=*`
+- follows `meta.next_cursor`
+- requests at most 100 provider records per page
+- caps one Feed refresh at 500 provider records
 - requests article records, optionally including preprints according to Feed policy
 - reconstructs `abstract_inverted_index` into original abstract text
 - normalizes DOI values to lowercase bare DOI form
@@ -138,7 +135,7 @@ The OpenAlex adapter currently:
 
 Records without enough metadata for a usable title + abstract card are skipped.
 
-## 10. Identity resolution
+## 10. Identity resolution and concurrency
 
 Identity resolution is a first-class subsystem.
 
@@ -150,6 +147,8 @@ Current strong keys:
 A new paper receives a DOI-based canonical ID when possible; otherwise it receives an OpenAlex-based ID. If a later ingestion adds a DOI to an already known OpenAlex work, the existing canonical Paper row is kept and the DOI identifier is attached to it.
 
 An identifier that already belongs to a different Paper causes an explicit conflict instead of a silent merge.
+
+Paper-to-Feed membership uses an idempotent insert so overlapping refreshes cannot fail merely because both runs discover the same membership.
 
 Crossref enrichment and more complete multi-provider conflict policy are tracked in #9.
 
@@ -169,15 +168,24 @@ The provider normalizes evidence first, then applies the Feed policy. Recommenda
 
 CI must not depend on live scholarly APIs.
 
-OpenAlex tests use a recorded JSON fixture and a mock `fetch` implementation to verify:
+OpenAlex tests use recorded JSON fixtures and mock `fetch` implementations to verify:
 
 - query construction
+- cursor pagination
+- truncation behavior
 - abstract reconstruction
 - DOI/OpenAlex ID normalization
 - PDF/source selection
 - publication policy behavior
 
-D1 migrations and Worker persistence continue to be exercised independently in the local Cloudflare runtime.
+The Worker smoke test runs against a local mock OpenAlex endpoint and D1 to verify:
+
+- explicit backfill does not advance the watermark
+- repeated ingestion is idempotent
+- local scheduled invocation advances watermarks
+- a provider failure leaves the successful watermark intact
+
+Cloudflare exposes the local scheduled handler through `/cdn-cgi/local/scheduled`, so CI exercises the same `scheduled()` entrypoint used by Cron Triggers.
 
 ## 13. Security and privacy
 
