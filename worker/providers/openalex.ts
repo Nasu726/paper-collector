@@ -1,4 +1,5 @@
 import type { Feed, PaperIdentifier, PublicationStatus } from '../../src/domain'
+import { normalizeDoi, normalizeOpenAlexId } from './identifiers'
 import type { PaperProvider, ProviderPaper, ProviderSearchRequest, ProviderSearchResult } from './types'
 
 type OpenAlexLocation = {
@@ -51,21 +52,7 @@ function normalizeDate(value: string | null | undefined): string | undefined {
   return value
 }
 
-export function normalizeDoi(value: string | null | undefined): string | undefined {
-  if (!value) return undefined
-  const normalized = value
-    .trim()
-    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '')
-    .replace(/^doi:\s*/i, '')
-    .toLowerCase()
-  return normalized.startsWith('10.') && normalized.includes('/') ? normalized : undefined
-}
-
-export function normalizeOpenAlexId(value: string | null | undefined): string | undefined {
-  if (!value) return undefined
-  const candidate = value.trim().replace(/^https?:\/\/openalex\.org\//i, '')
-  return /^W\d+$/i.test(candidate) ? candidate.toUpperCase() : undefined
-}
+export { normalizeDoi, normalizeOpenAlexId }
 
 export function reconstructOpenAlexAbstract(index: Record<string, number[]> | null | undefined): string {
   if (!index) return ''
@@ -166,7 +153,7 @@ export class OpenAlexProvider implements PaperProvider {
       response = await this.fetchImpl(url, {
         headers: {
           accept: 'application/json',
-          'user-agent': 'paper-collector/0.4 (+https://github.com/Nasu726/paper-collector)',
+          'user-agent': 'paper-collector/0.5 (+https://github.com/Nasu726/paper-collector)',
         },
         signal: controller.signal,
       })
