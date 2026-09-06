@@ -67,7 +67,7 @@ async function waitForApp(server, output) {
 
 async function bootstrap() {
   const response = await fetch(`${appBaseUrl}/api/bootstrap`, { cache: 'no-store' })
-  assert(response.ok, `Bootstrap failed with ${response.status}`)
+  if (!response.ok) throw new Error(`Bootstrap failed with ${response.status}: ${await response.text()}`)
   return response.json()
 }
 
@@ -77,7 +77,7 @@ async function refresh() {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ fromDate: '2026-09-01', toDate: '2026-09-06' }),
   })
-  assert(response.ok, `Feed refresh failed with ${response.status}: ${await response.text()}`)
+  if (!response.ok) throw new Error(`Feed refresh failed with ${response.status}: ${await response.text()}`)
   return response.json()
 }
 
