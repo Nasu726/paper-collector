@@ -107,18 +107,46 @@ Goal: turn the UI prototype into a paper collector.
 
 Exit criterion: a configured feed receives new real papers without manual database entry, enriches DOI metadata without losing provider disagreement, and continues to refresh safely over time.
 
-## Milestone 4 — Feed management
+## Milestone 4 — Feed management (#14)
 
 Goal: make multiple research interests first-class.
 
-- [ ] create/edit/archive feeds
-- [ ] natural-language intent
-- [ ] explicit provider query configuration
-- [ ] exclusions
-- [ ] publication-source policy
-- [ ] multi-feed membership without duplicate Inbox papers
+### Milestone 4a — Feed lifecycle API (#15)
 
-Exit criterion: at least two independent research feeds can coexist cleanly and their collection queries can be adjusted without mutating learned preference state.
+- [x] create/edit Feed API with bounded validation
+- [x] server-generated stable Feed IDs
+- [x] pause/resume
+- [x] archive/restore without deleting history
+- [x] archived Feed recovery endpoint
+- [x] intent and provider query remain independent
+- [x] query/source-policy changes reset collection checkpoint
+- [x] name/intent/exclusion changes preserve collection checkpoint
+- [x] configuration update and checkpoint reset are atomic
+
+### Milestone 4b — Mobile Feed editor (#16)
+
+- [x] create Feed from the Feeds tab
+- [x] edit natural-language research intent
+- [x] edit explicit provider query independently
+- [x] edit exclusions
+- [x] edit publication-source policy
+- [x] pause/resume controls
+- [x] two-step archive action
+- [x] archived Feed restore UI
+- [x] inline API errors and fresh-lookback warning
+- [x] no dashboard introduced
+
+### Milestone 4c — Multi-Feed lifecycle invariants (#17)
+
+- [x] same DOI may belong to multiple Feeds while remaining one canonical Paper
+- [x] ingestion provenance remains inspectable per Feed
+- [x] decisions survive Feed edits/archive
+- [x] archived and paused Feeds are excluded from scheduled collection
+- [x] restore returns paused; explicit resume re-enables collection
+- [x] editing one Feed does not mutate another Feed
+- [x] deterministic CI regression covers the full lifecycle
+
+Exit criterion: at least two independent research feeds coexist cleanly, share canonical Papers without duplicate Inbox records, can be configured from the mobile UI, and preserve history across pause/archive/configuration transitions.
 
 ## Milestone 5 — Feedback instrumentation
 
