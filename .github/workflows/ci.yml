@@ -25,3 +25,9 @@ jobs:
 
       - name: Typecheck and build
         run: npm run build
+
+      - name: Initialize local D1
+        run: npm run db:setup:local
+
+      - name: Smoke-check seeded D1
+        run: npm run db:smoke:local
