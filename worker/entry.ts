@@ -49,6 +49,7 @@ type ProvenanceRow = {
 type BootstrapPaper = {
   id?: unknown
   feedIds?: unknown
+  recommendation?: unknown
   [key: string]: unknown
 }
 
@@ -177,6 +178,25 @@ async function handleMetadataApi(request: Request, env: Env): Promise<Response |
   return null
 }
 
+async function activeRecommendationModel(db: D1Database): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT model_version
+       FROM recommendation_model_state
+       WHERE live_generation > 0
+       ORDER BY live_generation DESC
+       LIMIT 1`,
+    )
+    .first<{ model_version: string }>()
+  return row?.model_version ?? null
+}
+
+function recommendationModelVersion(paper: BootstrapPaper): string | undefined {
+  if (!paper.recommendation || typeof paper.recommendation !== 'object') return undefined
+  const modelVersion = (paper.recommendation as Record<string, unknown>).modelVersion
+  return typeof modelVersion === 'string' ? modelVersion : undefined
+}
+
 async function filteredBootstrap(request: BaseFetchRequest, env: Env): Promise<Response> {
   const response = await baseHandler.fetch(request, env)
   if (!response.ok) return response
@@ -184,7 +204,10 @@ async function filteredBootstrap(request: BaseFetchRequest, env: Env): Promise<R
   const payload = (await response.json()) as BootstrapPayload
   if (!Array.isArray(payload.feeds)) return json(payload, { status: response.status })
 
-  const visible = await visibleFeedIds(env.DB)
+  const [visible, activeModel] = await Promise.all([
+    visibleFeedIds(env.DB),
+    activeRecommendationModel(env.DB),
+  ])
   const visibleFeeds = payload.feeds.filter((feed) => typeof feed.id === 'string' && visible.has(feed.id))
   const decisions = payload.decisions ?? {}
   const papers = Array.isArray(payload.papers)
@@ -193,7 +216,11 @@ async function filteredBootstrap(request: BaseFetchRequest, env: Env): Promise<R
           const visiblePaperFeedIds = Array.isArray(paper.feedIds)
             ? paper.feedIds.filter((feedId): feedId is string => typeof feedId === 'string' && visible.has(feedId))
             : []
-          return { ...paper, feedIds: visiblePaperFeedIds }
+          const recommendation =
+            activeModel && recommendationModelVersion(paper) !== activeModel
+              ? undefined
+              : paper.recommendation
+          return { ...paper, feedIds: visiblePaperFeedIds, recommendation }
         })
         .filter((paper) => {
           const decided = typeof paper.id === 'string' && Object.prototype.hasOwnProperty.call(decisions, paper.id)
