@@ -25,6 +25,7 @@ export type Paper = {
   abstract: string
   authors: string[]
   publishedAt?: string
+  acceptedAt?: string
   venue?: string
   publicationStatus: PublicationStatus
   sourceUrl: string
