@@ -73,3 +73,6 @@ export type Decision = {
   recommendationBucket?: RecommendationBucket
   modelVersion?: string
 }
+
+export type FeedbackEventType = 'abstract_expanded' | 'pdf_opened' | 'source_opened'
+export type FeedbackSurface = 'inbox' | 'saved' | 'archive'

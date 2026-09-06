@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { appRepository, type AppBootstrap, type PersistenceMode } from './appRepository'
 import { FeedManager } from './FeedManager'
 import type {
   Decision,
   DecisionState,
   Feed,
+  FeedbackSurface,
   Paper,
   PublicationStatus,
   RecommendationBucket,
@@ -33,15 +34,31 @@ function feedNames(paper: Paper, feeds: Feed[]): string[] {
     .filter((name): name is string => Boolean(name))
 }
 
-function ExternalLinks({ paper }: { paper: Paper }) {
+function ExternalLinks({ paper, surface }: { paper: Paper; surface: FeedbackSurface }) {
+  function record(type: 'pdf_opened' | 'source_opened') {
+    void appRepository.recordFeedback(paper.id, type, surface)
+  }
+
   return (
     <div className="external-links" aria-label="Paper links">
       {paper.pdfUrl ? (
-        <a className="link-button primary-link" href={paper.pdfUrl} target="_blank" rel="noreferrer">
+        <a
+          className="link-button primary-link"
+          href={paper.pdfUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() => record('pdf_opened')}
+        >
           Open PDF ↗
         </a>
       ) : null}
-      <a className="link-button" href={paper.sourceUrl} target="_blank" rel="noreferrer">
+      <a
+        className="link-button"
+        href={paper.sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() => record('source_opened')}
+      >
         Source ↗
       </a>
     </div>
@@ -81,10 +98,20 @@ function FullPaperCard({
   onDecision: (paper: Paper, state: DecisionState) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const abstractFeedbackRecorded = useRef(false)
 
   useEffect(() => {
     setExpanded(false)
+    abstractFeedbackRecorded.current = false
   }, [paper.id])
+
+  function toggleAbstract() {
+    if (!expanded && !abstractFeedbackRecorded.current) {
+      abstractFeedbackRecorded.current = true
+      void appRepository.recordFeedback(paper.id, 'abstract_expanded', 'inbox')
+    }
+    setExpanded((value) => !value)
+  }
 
   return (
     <article className="paper-card">
@@ -109,12 +136,12 @@ function FullPaperCard({
           <span>Original</span>
         </div>
         <p className={expanded ? 'abstract' : 'abstract abstract-collapsed'}>{paper.abstract}</p>
-        <button className="text-button" type="button" onClick={() => setExpanded((value) => !value)}>
+        <button className="text-button" type="button" onClick={toggleAbstract}>
           {expanded ? 'Show less' : 'Read full abstract'}
         </button>
       </section>
 
-      <ExternalLinks paper={paper} />
+      <ExternalLinks paper={paper} surface="inbox" />
 
       <div className="decision-bar" aria-label="Triage actions">
         <button className="decision-button reject-button" type="button" onClick={() => onDecision(paper, 'rejected')}>
@@ -139,6 +166,8 @@ function CompactPaperCard({
   decision: Decision
   onReturnToInbox: (paperId: string) => void
 }) {
+  const surface: FeedbackSurface = decision.state === 'saved' ? 'saved' : 'archive'
+
   return (
     <article className="compact-paper-card">
       <div className="feed-row">
@@ -153,7 +182,7 @@ function CompactPaperCard({
       <p className="decision-time">
         {decision.state === 'saved' ? 'Saved' : 'Rejected'} {new Date(decision.decidedAt).toLocaleString()}
       </p>
-      <ExternalLinks paper={paper} />
+      <ExternalLinks paper={paper} surface={surface} />
       <button className="text-button" type="button" onClick={() => onReturnToInbox(paper.id)}>
         Return to Inbox
       </button>

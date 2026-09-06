@@ -1,5 +1,12 @@
 import { demoFeeds, demoPapers } from './demoData'
-import type { Decision, Feed, FeedSourcePolicy, Paper } from './domain'
+import type {
+  Decision,
+  Feed,
+  FeedbackEventType,
+  FeedbackSurface,
+  FeedSourcePolicy,
+  Paper,
+} from './domain'
 import { clearDecisions, loadDecisions, saveDecisions, type DecisionMap } from './storage'
 
 export type PersistenceMode = 'cloud' | 'local'
@@ -131,6 +138,20 @@ class ApiAppRepository {
     return payload.feeds as Feed[]
   }
 
+  async recordFeedback(
+    paperId: string,
+    type: FeedbackEventType,
+    surface: FeedbackSurface,
+  ): Promise<void> {
+    const response = await fetch('/api/feedback-events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ paperId, type, surface }),
+      keepalive: true,
+    })
+    if (!response.ok) throw new Error(`Feedback event failed with ${response.status}`)
+  }
+
   async upsertDecision(decision: Decision): Promise<void> {
     const response = await fetch(`/api/decisions/${encodeURIComponent(decision.paperId)}`, {
       method: 'PUT',
@@ -237,6 +258,22 @@ class ResilientAppRepository {
   async loadArchivedFeeds(): Promise<Feed[]> {
     this.requireCloud()
     return this.api.loadArchivedFeeds()
+  }
+
+  async recordFeedback(
+    paperId: string,
+    type: FeedbackEventType,
+    surface: FeedbackSurface,
+  ): Promise<boolean> {
+    if (this.mode !== 'cloud') return false
+    try {
+      await this.api.recordFeedback(paperId, type, surface)
+      return true
+    } catch {
+      // Feedback is optional evidence. A telemetry failure must not downgrade
+      // decision persistence or interrupt the user's navigation/triage flow.
+      return false
+    }
   }
 
   async upsertDecision(decision: Decision): Promise<PersistenceMode> {
