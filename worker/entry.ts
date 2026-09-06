@@ -103,16 +103,16 @@ async function handleCrossrefApi(request: Request, env: Env): Promise<Response |
 }
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const crossrefResponse = await handleCrossrefApi(request, env)
     if (crossrefResponse) return crossrefResponse
-    return baseHandler.fetch(request, env, ctx)
+    return baseHandler.fetch(request, env)
   },
 
-  async scheduled(controller, env, ctx) {
+  async scheduled(controller, env) {
     let ingestionFailure: unknown
     try {
-      await baseHandler.scheduled(controller, env, ctx)
+      await baseHandler.scheduled(controller, env)
     } catch (cause) {
       ingestionFailure = cause
     }
