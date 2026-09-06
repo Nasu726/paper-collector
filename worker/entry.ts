@@ -13,8 +13,13 @@ import {
   type FeedLifecycleEnv,
 } from './feedLifecycle'
 import type { RefreshEnv } from './feedRefresh'
+import {
+  handleRecommendationApi,
+  rebuildRecommendationSnapshots,
+  type RecommendationEnv,
+} from './recommendation'
 
-type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv & FeedbackEnv
+type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv & FeedbackEnv & RecommendationEnv
 type BaseFetchRequest = Parameters<typeof baseHandler.fetch>[0]
 
 type EvidenceRow = {
@@ -217,6 +222,9 @@ export default {
       const feedbackResponse = await handleFeedbackApi(request, env)
       if (feedbackResponse) return feedbackResponse
 
+      const recommendationResponse = await handleRecommendationApi(request, env)
+      if (recommendationResponse) return recommendationResponse
+
       const metadataResponse = await handleMetadataApi(request, env)
       if (metadataResponse) return metadataResponse
 
@@ -244,5 +252,7 @@ export default {
     if (enrichment.failed > 0) {
       throw new Error(`Crossref enrichment failed for ${enrichment.failed} paper(s).`)
     }
+
+    await rebuildRecommendationSnapshots(env)
   },
 } satisfies ExportedHandler<Env>
