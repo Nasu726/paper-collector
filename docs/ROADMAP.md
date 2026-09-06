@@ -79,7 +79,7 @@ Goal: turn the UI prototype into a paper collector.
 - [x] explicit provider query kept separate from user-facing Feed intent
 - [x] manual Worker refresh endpoint
 - [x] recorded provider fixture test without live network dependency
-- [ ] merge-candidate CI verified
+- [x] merge-candidate CI verified, including fixture-backed Worker ingestion and idempotent repeat refresh
 
 ### Milestone 3b — Identity and Crossref enrichment (#9)
 
