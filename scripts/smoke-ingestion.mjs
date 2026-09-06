@@ -5,7 +5,8 @@ import { resolve } from 'node:path'
 
 const appBaseUrl = 'http://127.0.0.1:5174'
 const envFile = '.env'
-const fixture = await readFile(new URL('../test/fixtures/openalex/works.json', import.meta.url), 'utf8')
+const openAlexFixture = await readFile(new URL('../test/fixtures/openalex/works.json', import.meta.url), 'utf8')
+const crossrefFixture = await readFile(new URL('../test/fixtures/crossref/work.json', import.meta.url), 'utf8')
 const viteCommand = resolve(
   'node_modules',
   '.bin',
@@ -16,37 +17,54 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-function startMockOpenAlex() {
-  let failing = false
+function startMockScholarlyApis() {
+  let openAlexFailing = false
+  let crossrefRequests = 0
   return new Promise((resolveServer, reject) => {
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
-      if (url.pathname !== '/works') {
-        response.writeHead(404).end()
-        return
-      }
-      if (failing) {
-        response.writeHead(503, { 'content-type': 'application/json' })
-        response.end(JSON.stringify({ error: 'fixture outage' }))
+
+      if (url.pathname === '/works') {
+        if (openAlexFailing) {
+          response.writeHead(503, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ error: 'fixture outage' }))
+          return
+        }
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(openAlexFixture)
         return
       }
 
-      response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(fixture)
+      if (url.pathname.startsWith('/works/')) {
+        crossrefRequests += 1
+        const requestedDoi = decodeURIComponent(url.pathname.slice('/works/'.length)).toLowerCase()
+        if (requestedDoi !== '10.5555/graph.test.2026') {
+          response.writeHead(404).end()
+          return
+        }
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(crossrefFixture)
+        return
+      }
+
+      response.writeHead(404).end()
     })
 
     server.once('error', reject)
     server.listen(0, '127.0.0.1', () => {
       const address = server.address()
       if (!address || typeof address === 'string') {
-        reject(new Error('Mock OpenAlex did not expose a TCP address'))
+        reject(new Error('Mock scholarly API did not expose a TCP address'))
         return
       }
       resolveServer({
         server,
         baseUrl: `http://127.0.0.1:${address.port}`,
-        setFailing(value) {
-          failing = value
+        setOpenAlexFailing(value) {
+          openAlexFailing = value
+        },
+        getCrossrefRequests() {
+          return crossrefRequests
         },
       })
     })
@@ -107,6 +125,18 @@ async function scheduledRefresh() {
   return response.json()
 }
 
+async function evidence(paperId) {
+  const response = await fetch(`${appBaseUrl}/api/papers/${encodeURIComponent(paperId)}/evidence`)
+  if (!response.ok) throw new Error(`Evidence lookup failed with ${response.status}: ${await response.text()}`)
+  return response.json()
+}
+
+async function runCrossrefAgain() {
+  const response = await fetch(`${appBaseUrl}/api/enrichment/crossref?limit=8`, { method: 'POST' })
+  if (!response.ok) throw new Error(`Crossref enrichment failed with ${response.status}: ${await response.text()}`)
+  return response.json()
+}
+
 let vite
 let mock
 let createdEnvFile = false
@@ -114,8 +144,18 @@ let exitCode = 0
 const output = { value: '' }
 
 try {
-  mock = await startMockOpenAlex()
-  await writeFile(envFile, `OPENALEX_BASE_URL="${mock.baseUrl}"\n`, { flag: 'wx' })
+  mock = await startMockScholarlyApis()
+  await writeFile(
+    envFile,
+    [
+      `OPENALEX_BASE_URL="${mock.baseUrl}"`,
+      `CROSSREF_BASE_URL="${mock.baseUrl}"`,
+      'CROSSREF_MAILTO="paper@example.test"',
+      'CROSSREF_MIN_INTERVAL_MS="0"',
+      '',
+    ].join('\n'),
+    { flag: 'wx' },
+  )
   createdEnvFile = true
 
   vite = spawn(viteCommand, ['--host', '127.0.0.1', '--port', '5174', '--strictPort'], {
@@ -151,6 +191,7 @@ try {
   assert(doiPaper, 'DOI-backed fixture paper is missing from bootstrap')
   assert(doiPaper.feedIds.includes('graph-algorithms'), 'DOI paper is not attached to the target Feed')
   assert(doiPaper.pdfUrl === 'https://repository.example/graph-test.pdf', 'Open PDF URL was not persisted')
+  assert(doiPaper.publishedAt === '2026-09-01', 'OpenAlex publication date was not initially canonical')
 
   const preprint = afterFirst.papers.find((paper) => paper.id === 'openalex:w9988776655')
   assert(preprint, 'OpenAlex-ID fixture preprint is missing from bootstrap')
@@ -164,6 +205,7 @@ try {
 
   const scheduled = await scheduledRefresh()
   assert(scheduled.outcome === 'ok', `Scheduled handler outcome was ${scheduled.outcome}`)
+  assert(mock.getCrossrefRequests() === 1, `Expected one Crossref DOI request, got ${mock.getCrossrefRequests()}`)
 
   const afterScheduled = await bootstrap()
   const graphFeed = afterScheduled.feeds.find((feed) => feed.id === 'graph-algorithms')
@@ -175,6 +217,36 @@ try {
 
   const crossFeedDoi = afterScheduled.papers.find((paper) => paper.id === 'doi:10.5555/graph.test.2026')
   assert(crossFeedDoi.feedIds.includes('compilers'), 'Scheduled refresh did not attach shared canonical paper to second Feed')
+  assert(crossFeedDoi.title === 'A Fixture Paper on Graph Algorithms', 'Crossref silently overwrote canonical title')
+  assert(crossFeedDoi.venue === 'Journal of Fixture Research', 'Crossref silently overwrote canonical venue')
+  assert(crossFeedDoi.publishedAt === '2026-09-02', 'Publisher publication date did not become canonical')
+  assert(crossFeedDoi.publicationStatus === 'published', 'Crossref enrichment regressed publication status')
+
+  const paperEvidence = await evidence(crossFeedDoi.id)
+  const titleEvidence = paperEvidence.evidence.filter((item) => item.fieldName === 'title')
+  assert(titleEvidence.some((item) => item.provider === 'openalex'), 'OpenAlex title evidence is missing')
+  assert(titleEvidence.some((item) => item.provider === 'crossref'), 'Crossref title disagreement is missing')
+  assert(titleEvidence.some((item) => item.provider === 'openalex' && item.selected), 'OpenAlex title should remain selected')
+  assert(!titleEvidence.some((item) => item.provider === 'crossref' && item.selected), 'Crossref title should not be selected')
+
+  const publishedEvidence = paperEvidence.evidence.filter((item) => item.fieldName === 'published_at')
+  assert(publishedEvidence.some((item) => item.provider === 'openalex'), 'OpenAlex publication-date evidence is missing')
+  assert(
+    publishedEvidence.some((item) => item.provider === 'crossref' && item.selected && item.value === '2026-09-02'),
+    'Crossref publication-date evidence was not selected',
+  )
+  assert(
+    paperEvidence.evidence.some(
+      (item) => item.fieldName === 'accepted_at' && item.provider === 'crossref' && item.selected && item.value === '2026-08-20',
+    ),
+    'Crossref accepted-date evidence is missing or unselected',
+  )
+
+  const crossrefRequestsBeforeCachedRun = mock.getCrossrefRequests()
+  const cachedEnrichment = await runCrossrefAgain()
+  assert(cachedEnrichment.considered === 0, 'Fresh Crossref enrichment should have been cached')
+  assert(cachedEnrichment.skippedFresh >= 1, 'Fresh Crossref state was not reported as cached')
+  assert(mock.getCrossrefRequests() === crossrefRequestsBeforeCachedRun, 'Cached enrichment still called Crossref')
 
   const overlapping = await Promise.all([refreshGraph(), refreshGraph()])
   assert(overlapping.every((result) => result.status === 'success'), 'Overlapping refresh did not complete successfully')
@@ -183,10 +255,12 @@ try {
 
   const afterOverlap = await bootstrap()
   const overlapGraph = afterOverlap.feeds.find((feed) => feed.id === 'graph-algorithms')
+  const overlapDoi = afterOverlap.papers.find((paper) => paper.id === 'doi:10.5555/graph.test.2026')
   assert(overlapGraph?.ingestion?.watermarkDate >= '2026-09-06', 'Overlapping refresh regressed the watermark')
   assert(afterOverlap.papers.length === beforeCount + 2, 'Overlapping refresh changed canonical paper count')
+  assert(overlapDoi.publishedAt === '2026-09-02', 'OpenAlex refresh overwrote selected Crossref publication date')
 
-  mock.setFailing(true)
+  mock.setOpenAlexFailing(true)
   const failedResponse = await fetch(`${appBaseUrl}/api/feeds/graph-algorithms/refresh`, { method: 'POST' })
   assert(failedResponse.status === 502, `Expected provider failure to return 502, got ${failedResponse.status}`)
 
@@ -197,7 +271,7 @@ try {
   assert(Boolean(failedGraph.ingestion.lastError), 'Provider failure did not retain an error message')
 
   console.log(
-    'Ingestion smoke test passed: idempotent backfill, scheduled watermark, overlapping refresh, and failure-preserving watermark verified.',
+    'Ingestion smoke test passed: OpenAlex ingestion, Crossref evidence policy/cache, scheduled watermark, overlap, and failure semantics verified.',
   )
 } catch (error) {
   exitCode = 1
