@@ -11,6 +11,7 @@ import {
 import type { RefreshEnv } from './feedRefresh'
 
 type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv
+type BaseFetchRequest = Parameters<typeof baseHandler.fetch>[0]
 
 type EvidenceRow = {
   field_name: string
@@ -112,7 +113,7 @@ async function handleCrossrefApi(request: Request, env: Env): Promise<Response |
   return null
 }
 
-async function filteredBootstrap(request: Request, env: Env): Promise<Response> {
+async function filteredBootstrap(request: BaseFetchRequest, env: Env): Promise<Response> {
   const response = await baseHandler.fetch(request, env)
   if (!response.ok) return response
 
