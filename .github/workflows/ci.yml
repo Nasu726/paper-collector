@@ -37,3 +37,6 @@ jobs:
 
       - name: Smoke-check Worker persistence API
         run: npm run api:smoke:local
+
+      - name: Smoke-check fixture-backed ingestion API
+        run: npm run api:smoke:ingestion
