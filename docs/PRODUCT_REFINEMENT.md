@@ -25,13 +25,18 @@ Decision mutations are serialized in the client repository. This guarantees that
 
 ## Throughput measurement
 
-A later refinement may measure aggregate session throughput locally.
+Aggregate session throughput is measured only in the current browser page's memory. It is never written to D1, localStorage, feedback events, or recommendation state.
 
-Allowed aggregate measurements:
+Current semantics:
 
-- session start/end or total elapsed duration
-- number of decisions in the session
-- derived aggregate values such as decisions per minute or seconds per decision
+- the session starts when a ready Inbox first has at least one eligible Paper
+- every explicit Save / Not interested action increments the session decision count
+- a later Undo does not erase the fact that a decision interaction occurred, so it does not decrement the throughput count
+- elapsed time is measured from session start to the most recent decision, not continuously after the user stops triaging
+- the UI derives `seconds / decision` from that aggregate elapsed time and decision count
+- reloading the page starts a new measurement session
+
+This is intentionally an interaction-throughput metric, not a claim about net backlog reduction or time spent reading one specific Paper.
 
 Do not record or persist:
 
@@ -55,4 +60,4 @@ Refinements must preserve:
 - direct access to the paper abstract, PDF, and source page
 - no mandatory notes, ratings, or confirmation step for ordinary triage
 
-PWA installation and Saved search remain follow-up work. They should not be pulled into the Undo implementation.
+PWA installation and Saved search remain follow-up work. They should not be pulled into the throughput implementation.
