@@ -242,10 +242,12 @@ Goal: improve real phone triage speed and recovery without adding invasive telem
 
 ### Milestone 7b — Aggregate session throughput (#71)
 
-- [ ] measure aggregate session elapsed time and decision count locally
-- [ ] expose a small aggregate throughput result useful for UX tuning
-- [ ] do not collect per-Paper dwell time, card-view heartbeats, scroll depth, or per-Paper timing
-- [ ] do not feed throughput measurements into recommendation
+- [x] measure aggregate session elapsed time and decision count locally
+- [x] expose a small aggregate throughput result useful for UX tuning
+- [x] keep measurement in page memory only; no D1/localStorage/feedback persistence
+- [x] do not collect per-Paper dwell time, card-view heartbeats, scroll depth, or per-Paper timing
+- [x] do not feed throughput measurements into recommendation
+- [x] deterministic aggregate-metric regression test
 
 ### Milestone 7c — One-handed density tuning (#73)
 
