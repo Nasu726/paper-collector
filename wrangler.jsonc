@@ -19,6 +19,14 @@
       "migrations_dir": "migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "COLD_ARCHIVE",
+      // Reuse the Reader bucket but own only the paper-collector/cold/v1/ prefix.
+      // Wrangler local development keeps this binding in local simulated storage.
+      "bucket_name": "book-reader-documents"
+    }
+  ],
   "triggers": {
     "crons": ["17 */6 * * *"]
   }

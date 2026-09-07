@@ -8,6 +8,10 @@ import {
   type FeedbackEnv,
 } from './feedback'
 import {
+  handleFeedbackArchiveApi,
+  type FeedbackArchiveEnv,
+} from './feedbackArchive'
+import {
   handleFeedLifecycleApi,
   visibleFeedIds,
   type FeedLifecycleEnv,
@@ -24,7 +28,13 @@ import {
   rebuildRecommendationSnapshotsSafely,
 } from './recommendationRuntime'
 
-type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv & FeedbackEnv & RecommendationEnv & PaperGcEnv
+type Env = RefreshEnv &
+  CrossrefEnrichmentEnv &
+  FeedLifecycleEnv &
+  FeedbackEnv &
+  FeedbackArchiveEnv &
+  RecommendationEnv &
+  PaperGcEnv
 type BaseFetchRequest = Parameters<typeof baseHandler.fetch>[0]
 
 type EvidenceRow = {
@@ -253,6 +263,9 @@ export default {
 
       const feedbackResponse = await handleFeedbackApi(request, env)
       if (feedbackResponse) return feedbackResponse
+
+      const feedbackArchiveResponse = await handleFeedbackArchiveApi(request, env)
+      if (feedbackArchiveResponse) return feedbackArchiveResponse
 
       const recommendationResponse = await handleRecommendationApiSafely(request, env)
       if (recommendationResponse) return recommendationResponse
