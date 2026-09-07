@@ -226,14 +226,43 @@ The first baseline is deliberately deterministic and lexical rather than embeddi
 
 Exit criterion: recommendation buckets demonstrably improve ordering on a deterministic held-out regression fixture without reducing recall by filtering. Real-user quality remains unclaimed until enough chronological decisions exist for evaluation.
 
-## Milestone 7 — Product refinement
+## Milestone 7 — Mobile triage refinement (#66)
 
-- measure seconds per paper
-- tune card density
-- improve one-handed interaction
-- add undo where useful
-- consider PWA installation
-- saved-paper search if the Saved list becomes large
+Goal: improve real phone triage speed and recovery without adding invasive telemetry or dashboard complexity.
+
+### Milestone 7a — Immediate Undo (#67, #68, #69, #70)
+
+- [x] latest Save / Not interested action can be undone directly from Inbox
+- [x] Undo target is the latest session decision and does not expire on a timer
+- [x] stale Undo targets cannot delete a newer decision
+- [x] decision mutations are serialized so immediate PUT -> DELETE ordering is preserved
+- [x] recommendation refresh after Undo remains best-effort
+- [x] deterministic Undo state/mutation-order regression test
+- [x] privacy and interaction constraints documented
+
+### Milestone 7b — Aggregate session throughput (#71)
+
+- [ ] measure aggregate session elapsed time and decision count locally
+- [ ] expose a small aggregate throughput result useful for UX tuning
+- [ ] do not collect per-Paper dwell time, card-view heartbeats, scroll depth, or per-Paper timing
+- [ ] do not feed throughput measurements into recommendation
+
+### Milestone 7c — One-handed density tuning (#73)
+
+- [ ] use measured session throughput to identify remaining card-density/reachability friction
+- [ ] preserve fixed Save / Not interested controls and direct abstract/PDF access
+- [ ] keep iPhone 17 (402 x 874 pt) as the primary mobile acceptance target
+
+### Milestone 7d — PWA installability (#72)
+
+- [ ] add web app manifest / standalone installability after the triage interaction loop stabilizes
+- [ ] do not misrepresent cloud-backed state as safely offline when the Worker API is unavailable
+
+### Deferred refinement — Saved search (#74)
+
+Implement only when the Saved collection becomes large enough that scrolling is materially inefficient.
+
+Exit criterion: a phone user can triage quickly, immediately recover an accidental decision, and optionally inspect aggregate session throughput without adding invasive behavioral telemetry.
 
 ## Deferred intentionally
 
