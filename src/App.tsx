@@ -12,6 +12,13 @@ import type {
 } from './domain'
 import { orderInboxPapers } from './inboxOrdering'
 import {
+  emptyTriageSession,
+  formatSecondsPerDecision,
+  recordTriageDecision,
+  startTriageSession,
+  triageSessionMetrics,
+} from './triageSession'
+import {
   clearUndoTargetForPaper,
   isUndoTargetAvailable,
   undoTargetForDecision,
@@ -214,6 +221,7 @@ export default function App() {
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>('local')
   const [dataReady, setDataReady] = useState(false)
   const [undoTarget, setUndoTarget] = useState<UndoTarget | null>(null)
+  const [triageSession, setTriageSession] = useState(emptyTriageSession)
 
   function applyBootstrap(bootstrap: AppBootstrap) {
     setFeeds(bootstrap.feeds)
@@ -255,12 +263,20 @@ export default function App() {
     [decisions, papers],
   )
   const undoAvailable = isUndoTargetAvailable(undoTarget, decisions)
+  const sessionMetrics = triageSessionMetrics(triageSession)
+  const sessionPace = formatSecondsPerDecision(sessionMetrics)
+
+  useEffect(() => {
+    if (!dataReady || inbox.length === 0) return
+    setTriageSession((current) => startTriageSession(current, Date.now()))
+  }, [dataReady, inbox.length])
 
   function decide(paper: Paper, state: DecisionState) {
+    const now = Date.now()
     const decision: Decision = {
       paperId: paper.id,
       state,
-      decidedAt: new Date().toISOString(),
+      decidedAt: new Date(now).toISOString(),
       feedIds: paper.feedIds,
       recommendationBucket: paper.recommendation?.bucket,
       modelVersion: paper.recommendation?.modelVersion,
@@ -268,6 +284,7 @@ export default function App() {
 
     setDecisions((previous) => ({ ...previous, [paper.id]: decision }))
     setUndoTarget(undoTargetForDecision(decision, paper.title))
+    setTriageSession((current) => recordTriageDecision(current, now))
     void appRepository.upsertDecision(decision).then((mode) => {
       setPersistenceMode(mode)
       if (mode === 'cloud') refreshRecommendationOrdering()
@@ -314,6 +331,10 @@ export default function App() {
 
   const processedCount = papers.length - inbox.length
   const inboxHasPaper = tab === 'inbox' && Boolean(inbox[0])
+  const progressDetail =
+    sessionMetrics.decisionCount > 0 && sessionPace
+      ? `${sessionMetrics.decisionCount} session · ${sessionPace}`
+      : `${papers.length} total`
 
   return (
     <div className={`app-shell${inboxHasPaper ? ' inbox-mode' : ''}${tab === 'inbox' && undoAvailable ? ' undo-visible' : ''}`}>
@@ -342,7 +363,7 @@ export default function App() {
           <>
             <div className="progress-row">
               <span>{processedCount} processed</span>
-              <span>{papers.length} total</span>
+              <span>{progressDetail}</span>
             </div>
             <div className="progress-track" aria-hidden="true">
               <div

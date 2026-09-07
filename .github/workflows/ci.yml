@@ -41,6 +41,9 @@ jobs:
       - name: Test Inbox Undo semantics
         run: npm run test:undo
 
+      - name: Test aggregate triage session metrics
+        run: npm run test:triage-session
+
       - name: Evaluate recommendation baseline
         run: npm run eval:recommendation
 
