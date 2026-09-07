@@ -6,6 +6,7 @@ export type EvaluationImplicitEvent = {
   type: FeedbackEventType
   surface: FeedbackSurface
   count: number
+  observedAt: string
 }
 
 export type EvaluationTrainingItem = {
@@ -83,8 +84,8 @@ export const recommendationEvaluationFixture: {
         abstract: 'Algorithms enumerate clique separators and decomposition structures in chordal graphs.',
       },
       implicit: [
-        { type: 'pdf_opened', surface: 'inbox', count: 2 },
-        { type: 'source_opened', surface: 'inbox', count: 1 },
+        { type: 'pdf_opened', surface: 'inbox', count: 2, observedAt: '2026-08-08T13:00:00Z' },
+        { type: 'source_opened', surface: 'inbox', count: 1, observedAt: '2026-08-08T13:04:00Z' },
       ],
     },
   ],
