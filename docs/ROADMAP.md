@@ -257,8 +257,10 @@ Goal: improve real phone triage speed and recovery without adding invasive telem
 
 ### Milestone 7d — PWA installability (#72)
 
-- [ ] add web app manifest / standalone installability after the triage interaction loop stabilizes
-- [ ] do not misrepresent cloud-backed state as safely offline when the Worker API is unavailable
+- [x] add web app manifest / standalone installability after the triage interaction loop stabilizes
+- [x] do not misrepresent cloud-backed state as safely offline when the Worker API is unavailable
+
+Implemented in PR #79. Installability is intentionally separate from offline support; no Service Worker/offline guarantee was introduced.
 
 ### Deferred refinement — Saved search (#74)
 
