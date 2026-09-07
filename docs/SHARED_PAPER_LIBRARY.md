@@ -42,6 +42,7 @@ Paper Collector owns:
 - `decisions`
 - `feedback_events`
 - `recommendation_snapshots`
+- Paper GC/compact-learning/seen-identifier state
 
 Reader code must not depend on these tables merely to open a paper.
 
@@ -69,6 +70,24 @@ reader documents
 
 Reader-specific edits must not silently overwrite canonical scholarly metadata. Collector provider enrichment remains responsible for canonical title/authors/publication evidence.
 
+## Cross-application retention contract
+
+Canonical Papers are not guaranteed to remain in D1 forever. Paper Collector physically purges old rejected Papers to keep the shared D1 useful at high triage volume.
+
+Any application that still requires a canonical Paper as live content must register a row in `paper_retention_refs`:
+
+```text
+paper_id | owner       | reference_id
+---------+-------------+----------------
+...      | book-reader | document-123
+```
+
+`paper_retention_refs.paper_id` uses `ON DELETE RESTRICT`. Paper Collector's GC also excludes referenced Papers explicitly, so the table is both the logical ownership contract and a database-level deletion guard.
+
+A consumer should remove its retention reference only when it no longer requires that canonical Paper. Paper Collector does not infer Reader ownership from a URL, title, or naming convention.
+
+The detailed rejection window, compact-learning representation, and hard-delete behavior are documented in [`STORAGE_LIFECYCLE.md`](STORAGE_LIFECYCLE.md).
+
 ## Document bytes and URLs
 
 Paper Collector never stores PDF bytes. A canonical Paper keeps stable references such as:
@@ -85,9 +104,11 @@ Reader's existing `DocumentStorage` remains useful for explicit local/private im
 
 ## Hot versus cold data
 
-The shared D1 is the hot relational index. It should contain data needed for ordinary interactive queries: canonical Paper metadata, current decisions, current recommendation state, Feed membership, and Reader state.
+The shared D1 is the hot relational index. It should contain data needed for ordinary interactive queries: live canonical Paper metadata, current decisions, current recommendation state, Feed membership, and Reader state.
 
-Append-only history can grow much faster than canonical Paper metadata. Provider provenance, old recommendation generations, and old feedback events are candidates for later compaction/export to R2 rather than indefinite retention in the hot D1 database.
+Rejected Paper metadata is not retained indefinitely merely to remember that it existed. Once the retention policy allows GC, the canonical Paper row is physically deleted while bounded learning features and minimal seen identifiers may remain.
+
+Append-only history can grow much faster than canonical Paper metadata. Provider history, old recommendation generations, and feedback evidence are candidates for later loss-aware compaction/export to R2 rather than indefinite raw retention in the hot D1 database. Feedback must not simply be discarded when it still carries recommendation signal.
 
 That archival policy is intentionally a separate migration. Sharing the physical database does not by itself solve D1 capacity limits.
 
@@ -96,10 +117,12 @@ That archival policy is intentionally a separate migration. Sharing the physical
 1. Each repository may modify only the tables it owns unless a cross-repository migration is explicitly planned.
 2. Paper Collector migrations must continue using `paper_collector_migrations`.
 3. Reader migrations keep their existing migration history.
-4. Cross-application foreign keys should be added conservatively. A logical `paper_id` link is preferable until both applications can migrate atomically.
-5. No production data deletion is part of the initial shared-D1 binding change.
+4. Cross-application foreign keys should be added conservatively. `paper_retention_refs` is the explicit shared deletion guard; broader cross-repository schema coupling remains avoided.
+5. A consumer must establish its retention reference before relying on a Paper surviving Collector GC.
 
 ## Related work
 
 - Paper Collector architecture issue: #58
+- Paper hard-delete lifecycle: #62
+- Cold-history/compaction policy: #59
 - Reader integration issue: `Nasu726/book-reader#7`
