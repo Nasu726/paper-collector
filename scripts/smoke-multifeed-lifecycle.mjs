@@ -27,7 +27,10 @@ function startMockApis() {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
       if (url.pathname === '/works') {
         const query = url.searchParams.get('search') ?? ''
-        queryCounts.set(query, (queryCounts.get(query) ?? 0) + 1)
+        // Count actual cursor-backed collection pages, not the first-run meta.count probe.
+        if (url.searchParams.has('cursor')) {
+          queryCounts.set(query, (queryCounts.get(query) ?? 0) + 1)
+        }
         response.writeHead(200, { 'content-type': 'application/json' })
         response.end(openAlexFixture)
         return
