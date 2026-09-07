@@ -29,7 +29,8 @@
     "api:smoke:ingestion": "node ./scripts/smoke-ingestion.mjs",
     "api:smoke:feed-lifecycle": "node ./scripts/smoke-feed-lifecycle.mjs",
     "api:smoke:multifeed": "node ./scripts/smoke-multifeed-lifecycle.mjs",
-    "api:smoke:paper-gc": "node ./scripts/smoke-paper-gc.mjs"
+    "api:smoke:paper-gc": "node ./scripts/smoke-paper-gc.mjs",
+    "api:smoke:feedback-archive": "node ./scripts/smoke-feedback-archive.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",
