@@ -102,7 +102,8 @@ Goal: turn the UI prototype into a paper collector.
 - [x] Cloudflare scheduled Worker / Cron Trigger
 - [x] manual refresh action in the Feed UI
 - [x] last-success / last-error state
-- [x] 14-day initial lookback policy for new feeds
+- [x] bounded initial collection: current-year backfill when <=500 matches, otherwise newest 100 (#63)
+- [x] count-probe failure safely falls back to newest 100 rather than unbounded history
 - [x] fixture-backed CI coverage for scheduled execution and failure-preserving watermarks
 
 Exit criterion: a configured feed receives new real papers without manual database entry, enriches DOI metadata without losing provider disagreement, and continues to refresh safely over time.
@@ -187,26 +188,43 @@ Goal: collect useful preference evidence without increasing input burden.
 
 Exit criterion: actual usage produces structured, inspectable implicit evidence that can be consumed by recommendation experiments while the core triage flow remains unchanged and feedback failures remain non-blocking.
 
-## Milestone 6 — Recommendation baseline
+## Milestone 6 — Recommendation baseline (#53)
 
 Goal: provide useful ordering without hiding papers.
 
-Start simple. Candidate baseline:
+The first baseline is deliberately deterministic and lexical rather than embedding-dependent.
 
-- text embeddings for title + abstract
-- per-feed positive/negative examples
-- kNN or logistic regression style scorer
-- coarse recommendation bucket
-- explanation derived from matched topics/examples
+### Milestone 6a — Versioned lexical scorer/profile engine (#54)
 
-Requirements:
+- [x] normalized title + abstract lexical representation
+- [x] title weighting and stop-word/basic morphology handling
+- [x] explicit Save/Reject evidence dominates implicit evidence
+- [x] repeated implicit interactions have capped/logarithmic influence
+- [x] Feed intent and exclusions remain explicit and independent from learned state
+- [x] coarse recommendation buckets and human-readable reasons
+- [x] versioned recommendation snapshots in D1
 
-- no automatic filtering
-- explicit feed intent remains independent
-- model version stored with scores/decisions
-- cold-start behavior documented
+### Milestone 6b — Inbox ordering and safe rebuilds (#55)
 
-Exit criterion: recommendation buckets demonstrably improve ordering on held-out decisions without reducing recall by filtering.
+- [x] recommendation changes ordering only; it never changes eligibility
+- [x] opaque rank sent to the browser instead of raw score/percentage
+- [x] decision changes trigger best-effort recommendation rebuild
+- [x] concurrent rebuilds use monotonic generations so stale work cannot replace newer ranking
+- [x] deterministic fallback ordering and stable ties
+- [x] Saved/Archive ordering remains unchanged
+
+### Milestone 6c — Deterministic offline evaluation (#56)
+
+- [x] network-free chronological regression fixture
+- [x] intent-only baseline compared against learned `lexical-v1`
+- [x] pairwise accuracy, first-positive MRR, positive/negative score gap, and eligibility recall
+- [x] evaluation fails if an eligible held-out Paper is filtered
+- [x] output includes model version and evidence counts
+- [x] cold-start evidence-strength contract documented
+- [x] lexical limitations and embedding-escalation criteria documented
+- [x] current synthetic fixture improves pairwise accuracy from 0.25 to 1.00 and MRR from 0.333333 to 1.00 while recall remains 1.00
+
+Exit criterion: recommendation buckets demonstrably improve ordering on a deterministic held-out regression fixture without reducing recall by filtering. Real-user quality remains unclaimed until enough chronological decisions exist for evaluation.
 
 ## Milestone 7 — Product refinement
 
