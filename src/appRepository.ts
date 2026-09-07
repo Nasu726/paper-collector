@@ -7,6 +7,7 @@ import type {
   FeedSourcePolicy,
   Paper,
 } from './domain'
+import { SerialTaskQueue } from './serialTaskQueue'
 import { clearDecisions, loadDecisions, saveDecisions, type DecisionMap } from './storage'
 
 export type PersistenceMode = 'cloud' | 'local'
@@ -211,6 +212,7 @@ class ResilientAppRepository {
   private readonly local = new LocalAppRepository()
   private mode: PersistenceMode = 'cloud'
   private recommendationRefreshQueue: Promise<Paper[] | null> = Promise.resolve(null)
+  private readonly decisionMutationQueue = new SerialTaskQueue()
 
   private async loadCloud(): Promise<AppBootstrap> {
     const bootstrap = await this.api.load()
@@ -221,6 +223,22 @@ class ResilientAppRepository {
 
   private requireCloud(): void {
     if (this.mode !== 'cloud') throw new Error('Feed management requires the cloud Worker API.')
+  }
+
+  private enqueueDecisionMutation(
+    shouldAttemptCloud: boolean,
+    mutation: () => Promise<void>,
+  ): Promise<PersistenceMode> {
+    return this.decisionMutationQueue.enqueue(async () => {
+      if (shouldAttemptCloud) {
+        try {
+          await mutation()
+        } catch {
+          this.mode = 'local'
+        }
+      }
+      return this.mode
+    })
   }
 
   async load(): Promise<AppBootstrap> {
@@ -301,40 +319,22 @@ class ResilientAppRepository {
     }
   }
 
-  async upsertDecision(decision: Decision): Promise<PersistenceMode> {
+  upsertDecision(decision: Decision): Promise<PersistenceMode> {
     this.local.upsertDecision(decision)
-    if (this.mode === 'cloud') {
-      try {
-        await this.api.upsertDecision(decision)
-      } catch {
-        this.mode = 'local'
-      }
-    }
-    return this.mode
+    const shouldAttemptCloud = this.mode === 'cloud'
+    return this.enqueueDecisionMutation(shouldAttemptCloud, () => this.api.upsertDecision(decision))
   }
 
-  async removeDecision(paperId: string): Promise<PersistenceMode> {
+  removeDecision(paperId: string): Promise<PersistenceMode> {
     this.local.removeDecision(paperId)
-    if (this.mode === 'cloud') {
-      try {
-        await this.api.removeDecision(paperId)
-      } catch {
-        this.mode = 'local'
-      }
-    }
-    return this.mode
+    const shouldAttemptCloud = this.mode === 'cloud'
+    return this.enqueueDecisionMutation(shouldAttemptCloud, () => this.api.removeDecision(paperId))
   }
 
-  async clearDecisions(): Promise<PersistenceMode> {
+  clearDecisions(): Promise<PersistenceMode> {
     this.local.clearDecisions()
-    if (this.mode === 'cloud') {
-      try {
-        await this.api.clearDecisions()
-      } catch {
-        this.mode = 'local'
-      }
-    }
-    return this.mode
+    const shouldAttemptCloud = this.mode === 'cloud'
+    return this.enqueueDecisionMutation(shouldAttemptCloud, () => this.api.clearDecisions())
   }
 }
 
