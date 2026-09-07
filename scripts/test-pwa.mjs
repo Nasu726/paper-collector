@@ -64,13 +64,14 @@ const source = (await Promise.all(files.map((path) => readFile(path, 'utf8')))).
 assert(!source.includes('navigator.serviceWorker'), 'Service Worker registration was added without an offline-state contract')
 assert(!source.includes('serviceWorker.register'), 'Service Worker registration was added without an offline-state contract')
 
-assert(await exists('dist/manifest.webmanifest'), 'Vite build did not copy the web app manifest to dist')
-assert(await exists('dist/icon-192.svg'), 'Vite build did not copy the 192 icon to dist')
-assert(await exists('dist/icon-512.svg'), 'Vite build did not copy the 512 icon to dist')
+const clientDist = 'dist/client'
+assert(await exists(`${clientDist}/manifest.webmanifest`), 'Vite build did not copy the web app manifest to dist/client')
+assert(await exists(`${clientDist}/icon-192.svg`), 'Vite build did not copy the 192 icon to dist/client')
+assert(await exists(`${clientDist}/icon-512.svg`), 'Vite build did not copy the 512 icon to dist/client')
 
-const builtManifest = JSON.parse(await readFile('dist/manifest.webmanifest', 'utf8'))
+const builtManifest = JSON.parse(await readFile(`${clientDist}/manifest.webmanifest`, 'utf8'))
 assert.deepEqual(builtManifest, manifest, 'Built manifest differs from the checked source manifest')
-const builtHtml = await readFile('dist/index.html', 'utf8')
+const builtHtml = await readFile(`${clientDist}/index.html`, 'utf8')
 assert(builtHtml.includes('/manifest.webmanifest'), 'Built HTML lost the manifest link')
 
-console.log('PWA installability checks passed: manifest, 192/512 icons, iPhone standalone metadata, build output, and no false offline service worker verified.')
+console.log('PWA installability checks passed: manifest, 192/512 icons, iPhone standalone metadata, Cloudflare client build output, and no false offline service worker verified.')
