@@ -47,6 +47,9 @@ jobs:
       - name: Test aggregate triage session metrics
         run: npm run test:triage-session
 
+      - name: Prove production readiness binding checks are read-only
+        run: npm run test:readiness
+
       - name: Evaluate recommendation baseline
         run: npm run eval:recommendation
 
@@ -55,6 +58,9 @@ jobs:
 
       - name: Smoke-check seeded D1
         run: npm run db:smoke:local
+
+      - name: Smoke-check production readiness API
+        run: npm run api:smoke:readiness
 
       - name: Smoke-check Worker persistence API
         run: npm run api:smoke:local
