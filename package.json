@@ -11,6 +11,7 @@
     "test:crossref": "tsx ./scripts/test-crossref.ts",
     "test:recommendation": "tsx ./scripts/test-recommendation.ts",
     "test:inbox-ordering": "tsx ./scripts/test-inbox-ordering.ts",
+    "test:undo": "tsx ./scripts/test-undo.ts",
     "eval:recommendation": "tsx ./scripts/evaluate-recommendation.ts",
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",

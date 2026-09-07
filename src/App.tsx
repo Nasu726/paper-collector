@@ -11,6 +11,12 @@ import type {
   RecommendationBucket,
 } from './domain'
 import { orderInboxPapers } from './inboxOrdering'
+import {
+  clearUndoTargetForPaper,
+  isUndoTargetAvailable,
+  undoTargetForDecision,
+  type UndoTarget,
+} from './undoDecision'
 
 type Tab = 'inbox' | 'saved' | 'archive' | 'feeds'
 
@@ -207,6 +213,7 @@ export default function App() {
   const [decisions, setDecisions] = useState<Record<string, Decision>>({})
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>('local')
   const [dataReady, setDataReady] = useState(false)
+  const [undoTarget, setUndoTarget] = useState<UndoTarget | null>(null)
 
   function applyBootstrap(bootstrap: AppBootstrap) {
     setFeeds(bootstrap.feeds)
@@ -247,6 +254,7 @@ export default function App() {
     () => papers.filter((paper) => decisions[paper.id]?.state === 'rejected'),
     [decisions, papers],
   )
+  const undoAvailable = isUndoTargetAvailable(undoTarget, decisions)
 
   function decide(paper: Paper, state: DecisionState) {
     const decision: Decision = {
@@ -259,13 +267,14 @@ export default function App() {
     }
 
     setDecisions((previous) => ({ ...previous, [paper.id]: decision }))
+    setUndoTarget(undoTargetForDecision(decision, paper.title))
     void appRepository.upsertDecision(decision).then((mode) => {
       setPersistenceMode(mode)
       if (mode === 'cloud') refreshRecommendationOrdering()
     })
   }
 
-  function returnToInbox(paperId: string) {
+  function removeDecisionFromInbox(paperId: string) {
     setDecisions((previous) => {
       const next = { ...previous }
       delete next[paperId]
@@ -277,8 +286,25 @@ export default function App() {
     })
   }
 
+  function returnToInbox(paperId: string) {
+    setUndoTarget((current) => clearUndoTargetForPaper(current, paperId))
+    removeDecisionFromInbox(paperId)
+  }
+
+  function undoLastDecision() {
+    if (!isUndoTargetAvailable(undoTarget, decisions)) {
+      setUndoTarget(null)
+      return
+    }
+
+    const paperId = undoTarget.paperId
+    setUndoTarget(null)
+    removeDecisionFromInbox(paperId)
+  }
+
   function resetDecisions() {
     setDecisions({})
+    setUndoTarget(null)
     setTab('inbox')
     void appRepository.clearDecisions().then((mode) => {
       setPersistenceMode(mode)
@@ -290,7 +316,7 @@ export default function App() {
   const inboxHasPaper = tab === 'inbox' && Boolean(inbox[0])
 
   return (
-    <div className={`app-shell${inboxHasPaper ? ' inbox-mode' : ''}`}>
+    <div className={`app-shell${inboxHasPaper ? ' inbox-mode' : ''}${tab === 'inbox' && undoAvailable ? ' undo-visible' : ''}`}>
       <header className={`app-header${tab === 'inbox' ? ' app-header-inbox' : ''}`}>
         <div>
           <p className="eyebrow">Paper Collector</p>
@@ -380,6 +406,18 @@ export default function App() {
           />
         ) : null}
       </main>
+
+      {tab === 'inbox' && undoAvailable && undoTarget ? (
+        <aside className="undo-bar" aria-live="polite" aria-label="Last triage action">
+          <span className="undo-message">
+            <strong>{undoTarget.state === 'saved' ? 'Saved' : 'Archived'}</strong>
+            <span>{undoTarget.title}</span>
+          </span>
+          <button className="undo-button" type="button" onClick={undoLastDecision}>
+            Undo
+          </button>
+        </aside>
+      ) : null}
 
       <nav className="bottom-nav" aria-label="Primary navigation">
         <button className={tab === 'inbox' ? 'active' : ''} type="button" onClick={() => setTab('inbox')}>
