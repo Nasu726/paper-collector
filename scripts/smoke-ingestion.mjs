@@ -7,6 +7,14 @@ const appBaseUrl = 'http://127.0.0.1:5174'
 const envFile = '.env'
 const openAlexFixture = await readFile(new URL('../test/fixtures/openalex/works.json', import.meta.url), 'utf8')
 const crossrefFixture = await readFile(new URL('../test/fixtures/crossref/work.json', import.meta.url), 'utf8')
+const parsedOpenAlexFixture = JSON.parse(openAlexFixture)
+const broadWorks = Array.from({ length: 100 }, (_, index) => ({
+  ...parsedOpenAlexFixture.results[0],
+  id: `https://openalex.org/W${7000000000 + index}`,
+  doi: null,
+  title: `Broad first-collection fixture ${String(index + 1).padStart(3, '0')}`,
+  publication_date: '2026-09-05',
+}))
 const viteCommand = resolve(
   'node_modules',
   '.bin',
@@ -20,16 +28,34 @@ function assert(condition, message) {
 function startMockScholarlyApis() {
   let openAlexFailing = false
   let crossrefRequests = 0
+  const openAlexRequests = []
+
   return new Promise((resolveServer, reject) => {
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
 
       if (url.pathname === '/works') {
-        if (openAlexFailing) {
+        openAlexRequests.push(url.toString())
+        const query = url.searchParams.get('search') ?? ''
+        const isCountProbe = url.searchParams.get('per_page') === '1' && !url.searchParams.has('cursor')
+
+        if (openAlexFailing || (query === 'probe failure safety' && isCountProbe)) {
           response.writeHead(503, { 'content-type': 'application/json' })
           response.end(JSON.stringify({ error: 'fixture outage' }))
           return
         }
+
+        if (query === 'broad initial safety') {
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(
+            JSON.stringify({
+              meta: { count: 501, next_cursor: isCountProbe ? null : 'more-broad-results' },
+              results: isCountProbe ? [broadWorks[0]] : broadWorks,
+            }),
+          )
+          return
+        }
+
         response.writeHead(200, { 'content-type': 'application/json' })
         response.end(openAlexFixture)
         return
@@ -65,6 +91,9 @@ function startMockScholarlyApis() {
         },
         getCrossrefRequests() {
           return crossrefRequests
+        },
+        getOpenAlexRequests() {
+          return [...openAlexRequests]
         },
       })
     })
@@ -112,6 +141,16 @@ async function refreshGraph(body) {
   return response.json()
 }
 
+async function patchGraph(body) {
+  const response = await fetch(`${appBaseUrl}/api/feeds/graph-algorithms`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`Feed patch failed with ${response.status}: ${await response.text()}`)
+  return response.json()
+}
+
 async function backfillRefresh() {
   return refreshGraph({ fromDate: '2026-09-01', toDate: '2026-09-06' })
 }
@@ -135,6 +174,10 @@ async function runCrossrefAgain() {
   const response = await fetch(`${appBaseUrl}/api/enrichment/crossref?limit=8`, { method: 'POST' })
   if (!response.ok) throw new Error(`Crossref enrichment failed with ${response.status}: ${await response.text()}`)
   return response.json()
+}
+
+function requestsForQuery(requests, query) {
+  return requests.map((value) => new URL(value)).filter((url) => url.searchParams.get('search') === query)
 }
 
 let vite
@@ -203,9 +246,22 @@ try {
   assert(second.updated === 2, `Expected repeated refresh to update 2 papers, got ${second.updated}`)
   assert(second.attached === 0, `Repeated refresh duplicated Feed membership: ${second.attached}`)
 
+  const requestsBeforeScheduled = mock.getOpenAlexRequests().length
   const scheduled = await scheduledRefresh()
   assert(scheduled.outcome === 'ok', `Scheduled handler outcome was ${scheduled.outcome}`)
   assert(mock.getCrossrefRequests() === 1, `Expected one Crossref DOI request, got ${mock.getCrossrefRequests()}`)
+
+  const initialRequests = mock.getOpenAlexRequests().slice(requestsBeforeScheduled)
+  const graphInitialRequests = requestsForQuery(initialRequests, 'graph algorithms structural graph theory complexity improvement')
+  const graphCountProbe = graphInitialRequests.find((url) => url.searchParams.get('per_page') === '1' && !url.searchParams.has('cursor'))
+  const graphInitialSearch = graphInitialRequests.find((url) => url.searchParams.get('cursor') === '*')
+  assert(graphCountProbe, 'Initial automatic collection did not probe current-year OpenAlex count')
+  assert(graphInitialSearch, 'Initial automatic collection did not execute the current-year search')
+  assert(graphInitialSearch.searchParams.get('per_page') === '100', 'Narrow current-year collection should use the provider page size')
+  assert(
+    (graphInitialSearch.searchParams.get('filter') ?? '').includes('from_publication_date:2026-01-01'),
+    'Initial narrow Feed did not backfill from the start of 2026',
+  )
 
   const afterScheduled = await bootstrap()
   const graphFeed = afterScheduled.feeds.find((feed) => feed.id === 'graph-algorithms')
@@ -269,9 +325,57 @@ try {
   assert(failedGraph?.ingestion?.status === 'error', 'Provider failure was not recorded on the Feed')
   assert(failedGraph.ingestion.watermarkDate >= '2026-09-06', 'Provider failure advanced backwards or erased the watermark')
   assert(Boolean(failedGraph.ingestion.lastError), 'Provider failure did not retain an error message')
+  mock.setOpenAlexFailing(false)
+
+  // Resetting the query removes the watermark. A broad first collection with >500
+  // current-year matches must intentionally stop after the newest 100 and still
+  // establish the incremental watermark.
+  const broadPatch = await patchGraph({ providerQuery: 'broad initial safety' })
+  assert(broadPatch.collectionReset === true, 'Broad test query did not reset collection state')
+  const broadRequestStart = mock.getOpenAlexRequests().length
+  const broadScheduled = await scheduledRefresh()
+  assert(broadScheduled.outcome === 'ok', `Broad scheduled handler outcome was ${broadScheduled.outcome}`)
+
+  const broadState = (await bootstrap()).feeds.find((feed) => feed.id === 'graph-algorithms')?.ingestion
+  assert(broadState?.status === 'success', 'Latest-100 first collection was incorrectly marked truncated')
+  assert(broadState.watermarkDate === '2026-09-06', 'Latest-100 first collection did not establish a watermark')
+  assert(broadState.lastFetched === 100, `Expected broad first collection to fetch 100 rows, got ${broadState.lastFetched}`)
+
+  const broadRequests = requestsForQuery(mock.getOpenAlexRequests().slice(broadRequestStart), 'broad initial safety')
+  const broadProbe = broadRequests.find((url) => url.searchParams.get('per_page') === '1' && !url.searchParams.has('cursor'))
+  const broadSearches = broadRequests.filter((url) => url.searchParams.has('cursor'))
+  assert(broadProbe, 'Broad first collection did not probe the current-year count')
+  assert(broadSearches.length === 1, `Broad first collection fetched ${broadSearches.length} search pages instead of one`)
+  assert(broadSearches[0].searchParams.get('per_page') === '100', 'Broad first collection did not enforce latest-100')
+  assert(broadSearches[0].searchParams.get('cursor') === '*', 'Broad first collection did not start at newest cursor page')
+  assert(
+    (broadSearches[0].searchParams.get('filter') ?? '').includes('from_publication_date:2026-01-01'),
+    'Broad first collection escaped the current-year window',
+  )
+
+  // A failed count probe is not allowed to open an unbounded path. It must fall
+  // back to the same latest-100 current-year search and still produce a usable Feed.
+  const fallbackPatch = await patchGraph({ providerQuery: 'probe failure safety' })
+  assert(fallbackPatch.collectionReset === true, 'Probe-failure test query did not reset collection state')
+  const fallbackRequestStart = mock.getOpenAlexRequests().length
+  const fallbackScheduled = await scheduledRefresh()
+  assert(fallbackScheduled.outcome === 'ok', `Probe-failure scheduled handler outcome was ${fallbackScheduled.outcome}`)
+
+  const fallbackState = (await bootstrap()).feeds.find((feed) => feed.id === 'graph-algorithms')?.ingestion
+  assert(fallbackState?.status === 'success', 'Count-probe failure incorrectly failed the Feed refresh')
+  assert(fallbackState.watermarkDate === '2026-09-06', 'Count-probe fallback did not establish a watermark')
+  const fallbackRequests = requestsForQuery(mock.getOpenAlexRequests().slice(fallbackRequestStart), 'probe failure safety')
+  const fallbackProbe = fallbackRequests.find((url) => url.searchParams.get('per_page') === '1' && !url.searchParams.has('cursor'))
+  const fallbackSearch = fallbackRequests.find((url) => url.searchParams.get('cursor') === '*')
+  assert(fallbackProbe, 'Probe-failure path did not attempt the bounded count request')
+  assert(fallbackSearch?.searchParams.get('per_page') === '100', 'Probe failure did not fall back to latest-100')
+  assert(
+    (fallbackSearch?.searchParams.get('filter') ?? '').includes('from_publication_date:2026-01-01'),
+    'Probe-failure fallback escaped the current-year window',
+  )
 
   console.log(
-    'Ingestion smoke test passed: OpenAlex ingestion, Crossref evidence policy/cache, scheduled watermark, overlap, and failure semantics verified.',
+    'Ingestion smoke test passed: provider enrichment, incremental semantics, <=500 annual backfill, >500 latest-100 cap, and probe-failure fallback verified.',
   )
 } catch (error) {
   exitCode = 1
