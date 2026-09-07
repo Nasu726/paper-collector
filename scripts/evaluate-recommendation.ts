@@ -77,8 +77,18 @@ const cutoff = Date.parse(fixture.cutoff)
 assert(Number.isFinite(cutoff), 'Fixture cutoff must be a valid timestamp.')
 
 for (const item of fixture.training) {
-  if (!item.judgedAt) continue
-  assert(Date.parse(item.judgedAt) < cutoff, `Training judgment ${item.paper.id} is not before the holdout cutoff.`)
+  if (item.explicitState) {
+    assert(item.judgedAt, `Explicit training judgment ${item.paper.id} is missing judgedAt.`)
+  }
+  if (item.judgedAt) {
+    assert(Date.parse(item.judgedAt) < cutoff, `Training judgment ${item.paper.id} is not before the holdout cutoff.`)
+  }
+  for (const event of item.implicit) {
+    assert(
+      Date.parse(event.observedAt) < cutoff,
+      `Implicit training event for ${item.paper.id} is not before the holdout cutoff.`,
+    )
+  }
 }
 for (const item of fixture.holdout) {
   assert(Date.parse(item.judgedAt) >= cutoff, `Holdout judgment ${item.paper.id} is before the cutoff.`)
@@ -87,7 +97,7 @@ for (const item of fixture.holdout) {
 const trainingEvidence: ProfileEvidence[] = fixture.training.map((item) => ({
   paper: item.paper,
   explicitState: item.explicitState,
-  implicit: item.implicit,
+  implicit: item.implicit.map(({ type, surface, count }) => ({ type, surface, count })),
 }))
 
 const baselineProfile = buildFeedProfile(fixture.feed, [])
