@@ -70,3 +70,6 @@ jobs:
 
       - name: Smoke-check multi-Feed lifecycle invariants
         run: npm run api:smoke:multifeed
+
+      - name: Smoke-check Paper hard-delete lifecycle
+        run: npm run api:smoke:paper-gc

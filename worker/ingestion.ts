@@ -88,6 +88,60 @@ async function findExistingPaper(db: D1Database, paper: ProviderPaper): Promise<
     .first<ExistingPaperRow>()
 }
 
+async function refreshSeenAliases(
+  db: D1Database,
+  identifiers: PaperIdentifier[],
+): Promise<void> {
+  const seenAt = new Date().toISOString()
+  const statements = identifiers.map((identifier) =>
+    db
+      .prepare(
+        `INSERT INTO seen_paper_identifiers (
+           kind, value, provider, first_seen_at, last_seen_at
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(kind, value, provider) DO UPDATE SET
+           last_seen_at = excluded.last_seen_at`,
+      )
+      .bind(
+        identifier.kind,
+        identifier.value,
+        identifierProvider(identifier),
+        seenAt,
+        seenAt,
+      ),
+  )
+  if (statements.length) await db.batch(statements)
+}
+
+async function wasPreviouslyPurged(db: D1Database, paper: ProviderPaper): Promise<boolean> {
+  const identifiers = paper.identifiers
+  if (identifiers.length) {
+    const clauses = identifiers.map(() => '(kind = ? AND value = ? AND provider = ?)').join(' OR ')
+    const bindings = identifiers.flatMap((identifier) => [
+      identifier.kind,
+      identifier.value,
+      identifierProvider(identifier),
+    ])
+    const match = await db
+      .prepare(`SELECT 1 AS found FROM seen_paper_identifiers WHERE ${clauses} LIMIT 1`)
+      .bind(...bindings)
+      .first<{ found: number }>()
+    if (match) {
+      await refreshSeenAliases(db, identifiers)
+      return true
+    }
+  }
+
+  const purged = await db
+    .prepare('SELECT 1 AS found FROM purged_paper_learning WHERE paper_id = ? LIMIT 1')
+    .bind(preferredPaperId(paper))
+    .first<{ found: number }>()
+  if (!purged) return false
+
+  await refreshSeenAliases(db, identifiers)
+  return true
+}
+
 async function registerIdentifiers(db: D1Database, paperId: string, identifiers: PaperIdentifier[]): Promise<void> {
   for (const identifier of identifiers) {
     const conflict = await db
@@ -166,6 +220,8 @@ export async function persistProviderPapers(
 
   for (const paper of papers) {
     const existing = await findExistingPaper(db, paper)
+    if (!existing && (await wasPreviouslyPurged(db, paper))) continue
+
     const paperId = existing?.id ?? preferredPaperId(paper)
     const identifiers = mergeIdentifiers(existing?.identifiers_json ?? null, paper.identifiers)
 

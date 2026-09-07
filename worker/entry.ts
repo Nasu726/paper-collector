@@ -13,13 +13,18 @@ import {
   type FeedLifecycleEnv,
 } from './feedLifecycle'
 import type { RefreshEnv } from './feedRefresh'
+import {
+  handlePaperStorageApi,
+  purgeDisposablePapers,
+  type PaperGcEnv,
+} from './paperGc'
 import type { RecommendationEnv } from './recommendation'
 import {
   handleRecommendationApiSafely,
   rebuildRecommendationSnapshotsSafely,
 } from './recommendationRuntime'
 
-type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv & FeedbackEnv & RecommendationEnv
+type Env = RefreshEnv & CrossrefEnrichmentEnv & FeedLifecycleEnv & FeedbackEnv & RecommendationEnv & PaperGcEnv
 type BaseFetchRequest = Parameters<typeof baseHandler.fetch>[0]
 
 type EvidenceRow = {
@@ -252,6 +257,9 @@ export default {
       const recommendationResponse = await handleRecommendationApiSafely(request, env)
       if (recommendationResponse) return recommendationResponse
 
+      const storageResponse = await handlePaperStorageApi(request, env)
+      if (storageResponse) return storageResponse
+
       const metadataResponse = await handleMetadataApi(request, env)
       if (metadataResponse) return metadataResponse
 
@@ -280,6 +288,7 @@ export default {
       throw new Error(`Crossref enrichment failed for ${enrichment.failed} paper(s).`)
     }
 
+    await purgeDisposablePapers(env)
     await rebuildRecommendationSnapshotsSafely(env)
   },
 } satisfies ExportedHandler<Env>
