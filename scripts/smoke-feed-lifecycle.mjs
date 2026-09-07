@@ -121,9 +121,17 @@ try {
   })
 
   await waitForApp(vite, output)
-  await scheduledRefresh()
 
+  // Previous smoke steps intentionally share the local D1 and may leave a valid
+  // checkpoint behind. Change the collection query first so this test starts from
+  // a deterministic no-checkpoint state and tests lifecycle semantics in isolation.
+  const baselinePatch = await patchFeed({ providerQuery: 'graph algorithms lifecycle baseline' })
+  assert(baselinePatch.collectionReset === true, 'Lifecycle baseline query did not reset collection state')
   let state = (await bootstrap()).feeds.find((feed) => feed.id === 'graph-algorithms')?.ingestion
+  assert(state === undefined, 'Lifecycle baseline did not clear a pre-existing ingestion checkpoint')
+
+  await scheduledRefresh()
+  state = (await bootstrap()).feeds.find((feed) => feed.id === 'graph-algorithms')?.ingestion
   assert(state?.watermarkDate === '2026-09-06', 'Scheduled refresh did not establish the expected watermark')
 
   const intentPatch = await patchFeed({ intent: 'Updated human-facing graph research intent only.' })

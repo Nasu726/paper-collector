@@ -35,6 +35,9 @@ jobs:
       - name: Test recommendation semantics
         run: npm run test:recommendation
 
+      - name: Test Inbox recommendation ordering
+        run: npm run test:inbox-ordering
+
       - name: Initialize local D1
         run: npm run db:setup:local
 

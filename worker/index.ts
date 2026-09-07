@@ -68,6 +68,7 @@ type RecommendationRow = {
   reasons_json: string
   model_version: string
   scored_at: string
+  score: number
 }
 
 type RefreshBody = {
@@ -83,6 +84,13 @@ const recommendationBuckets = new Set<RecommendationBucket>([
   'low',
   'very_low',
 ])
+const recommendationBucketOrder: Record<RecommendationBucket, number> = {
+  very_high: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  very_low: 4,
+}
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, {
@@ -200,7 +208,37 @@ async function loadFeeds(db: D1Database): Promise<Feed[]> {
   return result.results.map(rowToFeed)
 }
 
+async function activeRecommendationModel(db: D1Database): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT model_version
+       FROM recommendation_model_state
+       WHERE live_generation > 0
+       ORDER BY live_generation DESC
+       LIMIT 1`,
+    )
+    .first<{ model_version: string }>()
+  return row?.model_version ?? null
+}
+
 async function loadPapers(db: D1Database): Promise<Paper[]> {
+  const activeModel = await activeRecommendationModel(db)
+  const recommendationStatement = activeModel
+    ? db
+        .prepare(
+          `SELECT paper_id, bucket, reasons_json, model_version, scored_at, score
+           FROM recommendation_snapshots
+           WHERE feed_id IS NULL AND model_version = ?
+           ORDER BY scored_at DESC, id DESC`,
+        )
+        .bind(activeModel)
+    : db.prepare(
+        `SELECT paper_id, bucket, reasons_json, model_version, scored_at, score
+         FROM recommendation_snapshots
+         WHERE feed_id IS NULL
+         ORDER BY scored_at DESC, id DESC`,
+      )
+
   const [paperResult, membershipResult, recommendationResult] = await Promise.all([
     db
       .prepare(
@@ -211,14 +249,7 @@ async function loadPapers(db: D1Database): Promise<Paper[]> {
       )
       .all<PaperRow>(),
     db.prepare('SELECT paper_id, feed_id FROM paper_feeds ORDER BY paper_id, feed_id').all<PaperFeedRow>(),
-    db
-      .prepare(
-        `SELECT paper_id, bucket, reasons_json, model_version, scored_at
-         FROM recommendation_snapshots
-         WHERE feed_id IS NULL
-         ORDER BY scored_at DESC, id DESC`,
-      )
-      .all<RecommendationRow>(),
+    recommendationStatement.all<RecommendationRow>(),
   ])
 
   const feedIdsByPaper = new Map<string, string[]>()
@@ -232,6 +263,22 @@ async function loadPapers(db: D1Database): Promise<Paper[]> {
   for (const row of recommendationResult.results) {
     if (!recommendationByPaper.has(row.paper_id)) recommendationByPaper.set(row.paper_id, row)
   }
+
+  // Raw scores remain Worker-only. Browser clients receive only an ordinal rank.
+  const sourceOrderByPaper = new Map(paperResult.results.map((row, index) => [row.id, index]))
+  const recommendationRankByPaper = new Map<string, number>()
+  ;[...recommendationByPaper.entries()]
+    .sort(([paperIdA, a], [paperIdB, b]) => {
+      const bucketDifference = recommendationBucketOrder[a.bucket] - recommendationBucketOrder[b.bucket]
+      if (bucketDifference !== 0) return bucketDifference
+      if (a.score !== b.score) return b.score - a.score
+      const sourceDifference =
+        (sourceOrderByPaper.get(paperIdA) ?? Number.MAX_SAFE_INTEGER) -
+        (sourceOrderByPaper.get(paperIdB) ?? Number.MAX_SAFE_INTEGER)
+      if (sourceDifference !== 0) return sourceDifference
+      return paperIdA.localeCompare(paperIdB)
+    })
+    .forEach(([paperId], index) => recommendationRankByPaper.set(paperId, index + 1))
 
   return paperResult.results.map((row): Paper => {
     const recommendation = recommendationByPaper.get(row.id)
@@ -252,6 +299,7 @@ async function loadPapers(db: D1Database): Promise<Paper[]> {
             bucket: recommendation.bucket,
             reasons: parseJsonArray<string>(recommendation.reasons_json),
             modelVersion: recommendation.model_version,
+            rank: recommendationRankByPaper.get(row.id),
           }
         : undefined,
     }

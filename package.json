@@ -10,6 +10,7 @@
     "test:openalex": "tsx ./scripts/test-openalex.ts",
     "test:crossref": "tsx ./scripts/test-crossref.ts",
     "test:recommendation": "tsx ./scripts/test-recommendation.ts",
+    "test:inbox-ordering": "tsx ./scripts/test-inbox-ordering.ts",
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",
     "cf:typegen": "wrangler types",

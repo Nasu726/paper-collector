@@ -11,6 +11,8 @@ export type Recommendation = {
   bucket: RecommendationBucket
   reasons: string[]
   modelVersion: string
+  /** Opaque 1-based Inbox ordering rank. This is not a probability and is never displayed. */
+  rank?: number
 }
 
 export type PaperIdentifier = {
