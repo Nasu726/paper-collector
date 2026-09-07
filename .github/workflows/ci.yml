@@ -38,6 +38,9 @@ jobs:
       - name: Test Inbox recommendation ordering
         run: npm run test:inbox-ordering
 
+      - name: Evaluate recommendation baseline
+        run: npm run eval:recommendation
+
       - name: Initialize local D1
         run: npm run db:setup:local
 
