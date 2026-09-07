@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { planInitialCollection } from '../worker/feedRefresh'
 import {
   normalizeDoi,
   normalizeOpenAlexId,
@@ -28,11 +29,44 @@ assert.equal(
   'We study graph algorithms',
 )
 
+assert.deepEqual(planInitialCollection('2026-09-07', 500), {
+  fromDate: '2026-01-01',
+  maxResults: 500,
+  mode: 'current_year',
+  countedMatches: 500,
+})
+assert.deepEqual(planInitialCollection('2026-09-07', 501), {
+  fromDate: '2026-01-01',
+  maxResults: 100,
+  mode: 'latest_100',
+  countedMatches: 501,
+})
+assert.deepEqual(planInitialCollection('2026-09-07'), {
+  fromDate: '2026-01-01',
+  maxResults: 100,
+  mode: 'latest_100',
+  countedMatches: undefined,
+})
+
 const provider = new OpenAlexProvider({
   baseUrl: 'https://api.openalex.test',
   fetchImpl,
   apiKey: 'fixture-key',
 })
+
+const currentYearCount = await provider.countMatches({
+  query: 'graph algorithms',
+  fromDate: '2026-01-01',
+  toDate: '2026-09-07',
+  sourcePolicy: 'include_preprints',
+})
+assert.equal(currentYearCount, 2)
+const countUrl = new URL(lastUrl)
+assert.equal(countUrl.searchParams.get('per_page'), '1')
+assert.equal(countUrl.searchParams.get('cursor'), null)
+assert.equal(countUrl.searchParams.get('sort'), '-publication_date')
+assert.match(countUrl.searchParams.get('filter') ?? '', /from_publication_date:2026-01-01/)
+assert.match(countUrl.searchParams.get('filter') ?? '', /to_publication_date:2026-09-07/)
 
 const published = await provider.search({
   query: 'graph algorithms',

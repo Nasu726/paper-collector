@@ -43,6 +43,13 @@ export type FeedRefreshResult = {
   attached: number
 }
 
+export type InitialCollectionPlan = {
+  fromDate: string
+  maxResults: 100 | 500
+  mode: 'current_year' | 'latest_100'
+  countedMatches?: number
+}
+
 export class FeedRefreshError extends Error {
   readonly httpStatus: number
 
@@ -62,6 +69,24 @@ export function validIsoDate(value: unknown): value is string {
 export function daysBefore(date: string, days: number): string {
   const timestamp = Date.parse(`${date}T00:00:00Z`) - days * 86_400_000
   return new Date(timestamp).toISOString().slice(0, 10)
+}
+
+export function planInitialCollection(toDate: string, currentYearCount?: number): InitialCollectionPlan {
+  const fromDate = `${toDate.slice(0, 4)}-01-01`
+  if (Number.isInteger(currentYearCount) && (currentYearCount ?? -1) >= 0 && (currentYearCount ?? 501) <= 500) {
+    return {
+      fromDate,
+      maxResults: 500,
+      mode: 'current_year',
+      countedMatches: currentYearCount,
+    }
+  }
+  return {
+    fromDate,
+    maxResults: 100,
+    mode: 'latest_100',
+    countedMatches: currentYearCount,
+  }
 }
 
 function rowToFeed(row: FeedRow): Feed {
@@ -203,7 +228,38 @@ export async function refreshFeedById(
   const referenceTime = input.referenceTime ?? new Date()
   const toDate = input.toDate ?? referenceTime.toISOString().slice(0, 10)
   const previousWatermark = await loadWatermark(env.DB, feedId)
-  const fromDate = input.fromDate ?? (previousWatermark ? daysBefore(previousWatermark, 1) : daysBefore(toDate, 13))
+  const firstAutomaticCollection = !explicitRange && previousWatermark === undefined
+
+  const provider = new OpenAlexProvider({
+    apiKey: env.OPENALEX_API_KEY,
+    baseUrl: env.OPENALEX_BASE_URL,
+  })
+
+  let fromDate = input.fromDate ?? (previousWatermark ? daysBefore(previousWatermark, 1) : daysBefore(toDate, 13))
+  let maxResults = 500
+  let intentionallyBoundedInitialCollection = false
+
+  if (firstAutomaticCollection) {
+    const yearStart = `${toDate.slice(0, 4)}-01-01`
+    let currentYearCount: number | undefined
+    try {
+      currentYearCount = await provider.countMatches({
+        query,
+        fromDate: yearStart,
+        toDate,
+        sourcePolicy: feed.sourcePolicy,
+        maxResults: 1,
+      })
+    } catch (cause) {
+      console.warn(`OpenAlex initial count probe failed for Feed ${feedId}; falling back to latest 100.`, cause)
+    }
+
+    const plan = planInitialCollection(toDate, currentYearCount)
+    fromDate = plan.fromDate
+    maxResults = plan.maxResults
+    intentionallyBoundedInitialCollection = plan.mode === 'latest_100'
+  }
+
   if (fromDate > toDate) throw new FeedRefreshError('fromDate must not be after toDate.', 400)
 
   // Attempt ordering must reflect when this invocation actually started. The Cron
@@ -211,22 +267,20 @@ export async function refreshFeedById(
   const attemptedAt = new Date().toISOString()
   await recordAttempt(env.DB, feedId, attemptedAt)
 
-  const provider = new OpenAlexProvider({
-    apiKey: env.OPENALEX_API_KEY,
-    baseUrl: env.OPENALEX_BASE_URL,
-  })
-
   try {
     const search = await provider.search({
       query,
       fromDate,
       toDate,
       sourcePolicy: feed.sourcePolicy,
-      maxResults: 500,
+      maxResults,
     })
     const persisted = await persistProviderPapers(env.DB, feed, search.papers, query)
 
-    if (search.truncated) {
+    // A broad first Feed deliberately keeps only the latest 100 current-year works.
+    // OpenAlex correctly reports that more cursor pages exist, but that is the chosen
+    // first-run boundary rather than an incomplete incremental refresh.
+    if (search.truncated && !intentionallyBoundedInitialCollection) {
       const message = 'OpenAlex refresh hit the 500-result safety cap; watermark was not advanced.'
       await recordIncomplete(env.DB, feedId, attemptedAt, 'truncated', message, search.rawFetched, search.pages)
       return {
