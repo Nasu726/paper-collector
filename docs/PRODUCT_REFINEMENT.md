@@ -48,6 +48,29 @@ Do not record or persist:
 
 Aggregate throughput is a UX-tuning signal only. It must not become recommendation evidence.
 
+## PWA installability
+
+Paper Collector is installable as a standalone Home Screen/web app while preserving the same Worker + D1 online data model.
+
+Current installability contract:
+
+- a Web App Manifest provides stable app identity, standalone display mode, theme/background colors, and 192/512 icons
+- the 512 icon has a full-bleed background and a central safe-area glyph so operating-system mask shapes do not clip important content
+- iPhone standalone/title/status-bar metadata is present in the HTML head
+- no `apple-touch-icon` override is currently defined; iOS uses the shared manifest icon contract
+- the iPhone 17 logical viewport (402 x 874 pt) remains the main visual acceptance target after installation
+
+Installability does **not** currently mean offline-capable.
+
+There is deliberately no Service Worker cache yet. The core Inbox, decisions, Feed state, ingestion state, and current recommendations are cloud-backed. Serving a cached application shell without a complete and explicit cached-state contract could make stale/local fallback data look authoritative. A Service Worker should be introduced only together with a defined offline bootstrap, mutation queue/conflict policy, and clear connectivity/state indication.
+
+Therefore:
+
+- Add to Home Screen / standalone launch is supported
+- ordinary online Worker/API behavior is unchanged
+- no offline availability guarantee is made
+- CI rejects accidental Service Worker registration until that contract changes deliberately
+
 ## Mobile constraints
 
 The iPhone 17 logical viewport (402 x 874 pt) remains the primary mobile acceptance target.
@@ -60,4 +83,4 @@ Refinements must preserve:
 - direct access to the paper abstract, PDF, and source page
 - no mandatory notes, ratings, or confirmation step for ordinary triage
 
-PWA installation and Saved search remain follow-up work. They should not be pulled into the throughput implementation.
+Saved search remains deferred until the Saved collection is large enough for scrolling to become materially inefficient. One-handed density tuning should use real throughput observations rather than speculative layout churn.
