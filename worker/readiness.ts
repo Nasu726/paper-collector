@@ -4,6 +4,8 @@ export type ReadinessEnv = {
 }
 
 const COLD_ARCHIVE_PREFIX = 'paper-collector/cold/v1/'
+const MIGRATION_TABLE = 'paper_collector_migrations'
+const EXPECTED_MIGRATIONS = 9
 
 const REQUIRED_TABLES = [
   'feeds',
@@ -17,6 +19,9 @@ const REQUIRED_TABLES = [
   'crossref_enrichment_state',
   'decisions',
   'recommendation_snapshots',
+  'recommendation_snapshot_staging',
+  'recommendation_builds',
+  'recommendation_model_state',
   'feedback_events',
   'purged_paper_learning',
   'seen_paper_identifiers',
@@ -31,6 +36,7 @@ type CountRow = {
   active_feeds: number
   papers: number
   decisions: number
+  recommendation_snapshots: number
   raw_feedback: number
   compact_feedback_events: number
   purged_learning: number
@@ -44,7 +50,9 @@ export type ProductionReadinessReport = {
   checkedAt: string
   database: {
     available: boolean
+    migrationTableAvailable: boolean
     migrationRows?: number
+    expectedMigrations: number
     requiredTables: number
     missingTables: string[]
     counts?: {
@@ -52,6 +60,7 @@ export type ProductionReadinessReport = {
       activeFeeds: number
       papers: number
       decisions: number
+      recommendationSnapshots: number
       rawFeedback: number
       compactFeedbackEvents: number
       purgedLearning: number
@@ -69,59 +78,101 @@ export type ProductionReadinessReport = {
   }
 }
 
-function safeError(cause: unknown): string {
-  if (cause instanceof Error && cause.message) return cause.message.slice(0, 240)
-  return 'Unknown readiness failure'
+function databaseFailure(cause: unknown): ProductionReadinessReport['database'] {
+  console.error('Production readiness D1 check failed', cause)
+  return {
+    available: false,
+    migrationTableAvailable: false,
+    expectedMigrations: EXPECTED_MIGRATIONS,
+    requiredTables: REQUIRED_TABLES.length,
+    missingTables: [],
+    error: 'Database readiness query failed.',
+  }
 }
 
 async function databaseReadiness(env: ReadinessEnv): Promise<ProductionReadinessReport['database']> {
   try {
-    const [tableRows, migrationRow, counts] = await Promise.all([
-      env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all<{ name: string }>(),
-      env.DB
-        .prepare('SELECT COUNT(*) AS count FROM paper_collector_migrations')
-        .first<{ count: number }>(),
-      env.DB
-        .prepare(
-          `SELECT
-             (SELECT COUNT(*) FROM feeds) AS feeds,
-             (SELECT COUNT(*) FROM feeds WHERE active = 1 AND archived_at IS NULL) AS active_feeds,
-             (SELECT COUNT(*) FROM papers) AS papers,
-             (SELECT COUNT(*) FROM decisions) AS decisions,
-             (SELECT COUNT(*) FROM feedback_events) AS raw_feedback,
-             COALESCE((SELECT SUM(event_count) FROM feedback_compact), 0) AS compact_feedback_events,
-             (SELECT COUNT(*) FROM purged_paper_learning) AS purged_learning,
-             (SELECT COUNT(*) FROM seen_paper_identifiers) AS seen_identifiers,
-             (SELECT COUNT(*) FROM cold_archive_batches) AS archive_batches,
-             COALESCE((
-               SELECT SUM(
-                 length(CAST(title AS BLOB)) +
-                 length(CAST(abstract AS BLOB)) +
-                 length(CAST(authors_json AS BLOB)) +
-                 length(CAST(COALESCE(venue, '') AS BLOB)) +
-                 length(CAST(source_url AS BLOB)) +
-                 length(CAST(COALESCE(pdf_url, '') AS BLOB)) +
-                 length(CAST(identifiers_json AS BLOB))
-               ) FROM papers
-             ), 0) AS estimated_paper_bytes`,
-        )
-        .first<CountRow>(),
-    ])
-
+    const tableRows = await env.DB
+      .prepare("SELECT name FROM sqlite_schema WHERE type = 'table'")
+      .all<{ name: string }>()
     const present = new Set(tableRows.results.map((row) => row.name))
     const missingTables = REQUIRED_TABLES.filter((table) => !present.has(table))
-    if (!migrationRow || !counts) throw new Error('Collector schema counters are unavailable.')
+    const migrationTableAvailable = present.has(MIGRATION_TABLE)
+
+    if (!migrationTableAvailable || missingTables.length > 0) {
+      let migrationRows: number | undefined
+      if (migrationTableAvailable) {
+        const row = await env.DB
+          .prepare(`SELECT COUNT(*) AS count FROM ${MIGRATION_TABLE}`)
+          .first<{ count: number }>()
+        migrationRows = row?.count
+      }
+      return {
+        available: false,
+        migrationTableAvailable,
+        migrationRows,
+        expectedMigrations: EXPECTED_MIGRATIONS,
+        requiredTables: REQUIRED_TABLES.length,
+        missingTables: [...missingTables],
+      }
+    }
+
+    const migrationRow = await env.DB
+      .prepare(`SELECT COUNT(*) AS count FROM ${MIGRATION_TABLE}`)
+      .first<{ count: number }>()
+    if (!migrationRow) throw new Error('Collector migration counter is unavailable.')
+    if (migrationRow.count < EXPECTED_MIGRATIONS) {
+      return {
+        available: false,
+        migrationTableAvailable: true,
+        migrationRows: migrationRow.count,
+        expectedMigrations: EXPECTED_MIGRATIONS,
+        requiredTables: REQUIRED_TABLES.length,
+        missingTables: [],
+      }
+    }
+
+    const counts = await env.DB
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM feeds) AS feeds,
+           (SELECT COUNT(*) FROM feeds WHERE active = 1 AND archived_at IS NULL) AS active_feeds,
+           (SELECT COUNT(*) FROM papers) AS papers,
+           (SELECT COUNT(*) FROM decisions) AS decisions,
+           (SELECT COUNT(*) FROM recommendation_snapshots) AS recommendation_snapshots,
+           (SELECT COUNT(*) FROM feedback_events) AS raw_feedback,
+           COALESCE((SELECT SUM(event_count) FROM feedback_compact), 0) AS compact_feedback_events,
+           (SELECT COUNT(*) FROM purged_paper_learning) AS purged_learning,
+           (SELECT COUNT(*) FROM seen_paper_identifiers) AS seen_identifiers,
+           (SELECT COUNT(*) FROM cold_archive_batches) AS archive_batches,
+           COALESCE((
+             SELECT SUM(
+               length(CAST(title AS BLOB)) +
+               length(CAST(abstract AS BLOB)) +
+               length(CAST(authors_json AS BLOB)) +
+               length(CAST(COALESCE(venue, '') AS BLOB)) +
+               length(CAST(source_url AS BLOB)) +
+               length(CAST(COALESCE(pdf_url, '') AS BLOB)) +
+               length(CAST(identifiers_json AS BLOB))
+             ) FROM papers
+           ), 0) AS estimated_paper_bytes`,
+      )
+      .first<CountRow>()
+    if (!counts) throw new Error('Collector schema counters are unavailable.')
 
     return {
-      available: missingTables.length === 0,
+      available: true,
+      migrationTableAvailable: true,
       migrationRows: migrationRow.count,
+      expectedMigrations: EXPECTED_MIGRATIONS,
       requiredTables: REQUIRED_TABLES.length,
-      missingTables: [...missingTables],
+      missingTables: [],
       counts: {
         feeds: counts.feeds,
         activeFeeds: counts.active_feeds,
         papers: counts.papers,
         decisions: counts.decisions,
+        recommendationSnapshots: counts.recommendation_snapshots,
         rawFeedback: counts.raw_feedback,
         compactFeedbackEvents: counts.compact_feedback_events,
         purgedLearning: counts.purged_learning,
@@ -131,12 +182,7 @@ async function databaseReadiness(env: ReadinessEnv): Promise<ProductionReadiness
       },
     }
   } catch (cause) {
-    return {
-      available: false,
-      requiredTables: REQUIRED_TABLES.length,
-      missingTables: [],
-      error: safeError(cause),
-    }
+    return databaseFailure(cause)
   }
 }
 
@@ -149,10 +195,11 @@ async function coldArchiveReadiness(env: ReadinessEnv): Promise<ProductionReadin
       hasOwnedObjects: listed.objects.length > 0,
     }
   } catch (cause) {
+    console.error('Production readiness R2 check failed', cause)
     return {
       available: false,
       ownedPrefix: COLD_ARCHIVE_PREFIX,
-      error: safeError(cause),
+      error: 'Cold archive readiness query failed.',
     }
   }
 }
