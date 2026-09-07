@@ -37,3 +37,12 @@ CREATE TABLE IF NOT EXISTS cold_archive_batches (
 
 CREATE INDEX IF NOT EXISTS idx_cold_archive_batches_completed_at
   ON cold_archive_batches(completed_at);
+
+-- One short lease prevents overlapping archive requests with different cutoffs
+-- or batch sizes from compacting the same raw event twice. A crashed Worker
+-- cannot block archiving permanently because the lease expires automatically.
+CREATE TABLE IF NOT EXISTS cold_archive_leases (
+  name TEXT PRIMARY KEY,
+  token TEXT NOT NULL,
+  lease_until TEXT NOT NULL
+);
