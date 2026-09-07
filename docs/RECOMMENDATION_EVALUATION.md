@@ -37,6 +37,21 @@ The command reports both an intent-only profile and the learned `lexical-v1` pro
 
 The report also prints model version, explicit Save/Reject counts, implicit evidence mass, evidence strength, and the deterministic ranked holdout list.
 
+## Current regression result
+
+For fixture `graph-subtopic-chronological-v1`, CI currently reports:
+
+| Metric | Intent only | `lexical-v1` |
+| --- | ---: | ---: |
+| Pairwise accuracy | 0.25 | 1.00 |
+| First-positive MRR | 0.333333 | 1.00 |
+| Positive-negative score gap | -0.12 | +0.27789 |
+| Eligibility recall | 1.00 | 1.00 |
+
+The training side contains four explicit judgments (2 Save / 2 Reject) plus bounded implicit evidence with aggregate model mass `1.727218`; the profile's evidence-strength term is saturated at `1.0`.
+
+These values are regression expectations for this synthetic scenario. They must not be presented as production accuracy estimates.
+
 ## Cold-start contract
 
 With no interaction evidence, `buildFeedProfile` uses only the user-authored Feed intent and exclusions. Recommendation must therefore remain deterministic before the first decision.
