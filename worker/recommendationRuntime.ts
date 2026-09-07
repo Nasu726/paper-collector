@@ -10,12 +10,30 @@ function sqlLiteral(value: string): string {
 
 function stagingDatabase(db: D1Database, buildId: string): D1Database {
   const buildLiteral = sqlLiteral(buildId)
+  const modelLiteral = sqlLiteral(RECOMMENDATION_MODEL_VERSION)
 
   return new Proxy(db, {
     get(target, property, receiver) {
       if (property === 'prepare') {
         return (query: string) => {
           const normalized = query.replace(/\s+/g, ' ').trim()
+
+          if (normalized === 'SELECT id, title, abstract FROM papers ORDER BY id ASC') {
+            return target.prepare(
+              `SELECT id, title, abstract
+               FROM papers
+               UNION ALL
+               SELECT learning.paper_id AS id,
+                      learning.title_terms AS title,
+                      learning.abstract_terms AS abstract
+               FROM purged_paper_learning learning
+               WHERE learning.feature_version = ${modelLiteral}
+                 AND NOT EXISTS (
+                   SELECT 1 FROM papers live WHERE live.id = learning.paper_id
+                 )
+               ORDER BY id ASC`,
+            )
+          }
 
           if (normalized === 'DELETE FROM recommendation_snapshots WHERE model_version = ?') {
             return target.prepare(
