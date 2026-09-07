@@ -35,6 +35,28 @@ function stagingDatabase(db: D1Database, buildId: string): D1Database {
             )
           }
 
+          if (
+            normalized ===
+            'SELECT paper_id, event_type, metadata_json, COUNT(*) AS event_count FROM feedback_events GROUP BY paper_id, event_type, metadata_json ORDER BY paper_id, event_type'
+          ) {
+            return target.prepare(
+              `SELECT paper_id, event_type, metadata_json, SUM(event_count) AS event_count
+               FROM (
+                 SELECT paper_id,
+                        event_type,
+                        COALESCE(metadata_json, '') AS metadata_json,
+                        COUNT(*) AS event_count
+                 FROM feedback_events
+                 GROUP BY paper_id, event_type, COALESCE(metadata_json, '')
+                 UNION ALL
+                 SELECT paper_id, event_type, metadata_json, event_count
+                 FROM feedback_compact
+               ) combined_feedback
+               GROUP BY paper_id, event_type, metadata_json
+               ORDER BY paper_id, event_type`,
+            )
+          }
+
           if (normalized === 'DELETE FROM recommendation_snapshots WHERE model_version = ?') {
             return target.prepare(
               `DELETE FROM recommendation_snapshot_staging
