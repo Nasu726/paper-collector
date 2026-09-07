@@ -208,7 +208,37 @@ async function loadFeeds(db: D1Database): Promise<Feed[]> {
   return result.results.map(rowToFeed)
 }
 
+async function activeRecommendationModel(db: D1Database): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT model_version
+       FROM recommendation_model_state
+       WHERE live_generation > 0
+       ORDER BY live_generation DESC
+       LIMIT 1`,
+    )
+    .first<{ model_version: string }>()
+  return row?.model_version ?? null
+}
+
 async function loadPapers(db: D1Database): Promise<Paper[]> {
+  const activeModel = await activeRecommendationModel(db)
+  const recommendationStatement = activeModel
+    ? db
+        .prepare(
+          `SELECT paper_id, bucket, reasons_json, model_version, scored_at, score
+           FROM recommendation_snapshots
+           WHERE feed_id IS NULL AND model_version = ?
+           ORDER BY scored_at DESC, id DESC`,
+        )
+        .bind(activeModel)
+    : db.prepare(
+        `SELECT paper_id, bucket, reasons_json, model_version, scored_at, score
+         FROM recommendation_snapshots
+         WHERE feed_id IS NULL
+         ORDER BY scored_at DESC, id DESC`,
+      )
+
   const [paperResult, membershipResult, recommendationResult] = await Promise.all([
     db
       .prepare(
@@ -219,14 +249,7 @@ async function loadPapers(db: D1Database): Promise<Paper[]> {
       )
       .all<PaperRow>(),
     db.prepare('SELECT paper_id, feed_id FROM paper_feeds ORDER BY paper_id, feed_id').all<PaperFeedRow>(),
-    db
-      .prepare(
-        `SELECT paper_id, bucket, reasons_json, model_version, scored_at, score
-         FROM recommendation_snapshots
-         WHERE feed_id IS NULL
-         ORDER BY scored_at DESC, id DESC`,
-      )
-      .all<RecommendationRow>(),
+    recommendationStatement.all<RecommendationRow>(),
   ])
 
   const feedIdsByPaper = new Map<string, string[]>()
