@@ -32,6 +32,7 @@ type OpenAlexWork = {
 
 type OpenAlexResponse = {
   meta?: {
+    count?: number
     next_cursor?: string | null
   }
   results?: OpenAlexWork[]
@@ -145,6 +146,20 @@ export class OpenAlexProvider implements PaperProvider {
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init))
   }
 
+  private worksUrl(request: ProviderSearchRequest): URL {
+    const url = new URL(`${this.baseUrl}/works`)
+    url.searchParams.set('search', request.query)
+
+    const workTypes = request.sourcePolicy === 'include_preprints' ? 'article|preprint' : 'article'
+    url.searchParams.set(
+      'filter',
+      `from_publication_date:${request.fromDate},to_publication_date:${request.toDate},has_abstract:true,type:${workTypes}`,
+    )
+    url.searchParams.set('sort', '-publication_date')
+    if (this.apiKey) url.searchParams.set('api_key', this.apiKey)
+    return url
+  }
+
   private async fetchPage(url: URL): Promise<OpenAlexResponse> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
@@ -165,18 +180,22 @@ export class OpenAlexProvider implements PaperProvider {
     return (await response.json()) as OpenAlexResponse
   }
 
+  async countMatches(request: ProviderSearchRequest): Promise<number> {
+    const url = this.worksUrl(request)
+    // We need only meta.count. Keeping the page tiny prevents the safety probe from
+    // accidentally becoming a second collection request.
+    url.searchParams.set('per_page', '1')
+    const payload = await this.fetchPage(url)
+    const count = payload.meta?.count
+    if (!Number.isInteger(count) || (count ?? -1) < 0) {
+      throw new Error('OpenAlex response did not contain a valid meta.count')
+    }
+    return count as number
+  }
+
   async search(request: ProviderSearchRequest): Promise<ProviderSearchResult> {
     const maxResults = Math.min(Math.max(request.maxResults ?? MAX_RESULTS_PER_REFRESH, 1), MAX_RESULTS_PER_REFRESH)
-    const baseUrl = new URL(`${this.baseUrl}/works`)
-    baseUrl.searchParams.set('search', request.query)
-
-    const workTypes = request.sourcePolicy === 'include_preprints' ? 'article|preprint' : 'article'
-    baseUrl.searchParams.set(
-      'filter',
-      `from_publication_date:${request.fromDate},to_publication_date:${request.toDate},has_abstract:true,type:${workTypes}`,
-    )
-    baseUrl.searchParams.set('sort', '-publication_date')
-    if (this.apiKey) baseUrl.searchParams.set('api_key', this.apiKey)
+    const baseUrl = this.worksUrl(request)
 
     const papersById = new Map<string, ProviderPaper>()
     let cursor = '*'
