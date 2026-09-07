@@ -1,11 +1,13 @@
 PRAGMA foreign_keys = ON;
 
 -- Compact learning representation retained after the canonical Paper row is hard-deleted.
--- This is deliberately not a Paper tombstone: it contains no title, abstract, authors,
--- URLs, venue, or publication metadata.
+-- This is deliberately not a Paper tombstone: it contains no original title,
+-- abstract, authors, URLs, venue, or publication metadata.
 CREATE TABLE IF NOT EXISTS purged_paper_learning (
   paper_id TEXT PRIMARY KEY,
-  lexical_features_json TEXT NOT NULL,
+  feature_version TEXT NOT NULL,
+  title_terms TEXT NOT NULL,
+  abstract_terms TEXT NOT NULL,
   purged_at TEXT NOT NULL,
   estimated_source_bytes INTEGER NOT NULL DEFAULT 0
 );
@@ -13,7 +15,7 @@ CREATE TABLE IF NOT EXISTS purged_paper_learning (
 CREATE INDEX IF NOT EXISTS idx_purged_paper_learning_purged_at
   ON purged_paper_learning(purged_at);
 
--- Minimal identity keys prevent a recently/previously rejected Paper from being
+-- Minimal identity keys prevent a previously rejected Paper from being
 -- re-created solely because the full canonical row was physically removed.
 CREATE TABLE IF NOT EXISTS seen_paper_identifiers (
   kind TEXT NOT NULL CHECK (kind IN ('doi', 'arxiv', 'provider')),
