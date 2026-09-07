@@ -76,3 +76,6 @@ jobs:
 
       - name: Smoke-check Paper hard-delete lifecycle
         run: npm run api:smoke:paper-gc
+
+      - name: Smoke-check feedback cold archive lifecycle
+        run: npm run api:smoke:feedback-archive
