@@ -13,6 +13,7 @@
     "test:inbox-ordering": "tsx ./scripts/test-inbox-ordering.ts",
     "test:undo": "tsx ./scripts/test-undo.ts",
     "test:triage-session": "tsx ./scripts/test-triage-session.ts",
+    "test:pwa": "node ./scripts/test-pwa.mjs",
     "eval:recommendation": "tsx ./scripts/evaluate-recommendation.ts",
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",
