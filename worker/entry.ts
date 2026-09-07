@@ -22,6 +22,10 @@ import {
   purgeDisposablePapers,
   type PaperGcEnv,
 } from './paperGc'
+import {
+  handleReadinessApi,
+  type ReadinessEnv,
+} from './readiness'
 import type { RecommendationEnv } from './recommendation'
 import {
   handleRecommendationApiSafely,
@@ -34,7 +38,8 @@ type Env = RefreshEnv &
   FeedbackEnv &
   FeedbackArchiveEnv &
   RecommendationEnv &
-  PaperGcEnv
+  PaperGcEnv &
+  ReadinessEnv
 type BaseFetchRequest = Parameters<typeof baseHandler.fetch>[0]
 
 type EvidenceRow = {
@@ -258,6 +263,9 @@ export default {
     const url = new URL(request.url)
 
     try {
+      const readinessResponse = await handleReadinessApi(request, env)
+      if (readinessResponse) return readinessResponse
+
       const lifecycleResponse = await handleFeedLifecycleApi(request, env)
       if (lifecycleResponse) return lifecycleResponse
 
